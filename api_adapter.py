@@ -7,6 +7,7 @@ from typing import Any
 import jwt
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from starlette.routing import Route
 
 from runtime import MCPRuntimeConfig, MCPSettings, configure_runtime
 
@@ -96,7 +97,7 @@ configure_runtime(
 
 from server import mcp_server  # noqa: E402
 
-MCP_RESOURCE = f"{MCP_SERVER_URL}/agent/mcp"
+MCP_RESOURCE = MCP_SERVER_URL
 
 
 @contextlib.asynccontextmanager
@@ -132,7 +133,11 @@ async def oauth_authorization_server():
 
 
 mcp_app = mcp_server.streamable_http_app()
-app.mount("/agent", MCPAuthMiddleware(mcp_app))
+mcp_endpoint = next((route.endpoint for route in mcp_app.routes if getattr(route, "path", None) == "/mcp"), None)
+if mcp_endpoint is None:
+    raise RuntimeError("Unable to locate MCP /mcp endpoint in streamable HTTP app.")
+protected_mcp_endpoint = MCPAuthMiddleware(mcp_endpoint)
+app.router.routes.append(Route("/", endpoint=protected_mcp_endpoint, include_in_schema=False))
 
 
 @app.get("/health")

@@ -3,7 +3,7 @@ Project Brain MCP is a Model Context Protocol (MCP) server for project planning 
 It exposes tools for tasks, decisions, facts, milestones, comments, and team messaging through a Streamable HTTP endpoint.
 
 ## What it does
-- Serves MCP tools over HTTP at `/agent/mcp`
+- Serves MCP tools over HTTPS at `https://mcp.projectbrain.tools`
 - Authenticates bearer tokens (JWT or API key)
 - Provides MCP OAuth metadata endpoints
 - Executes tool actions against the Project Brain API
@@ -12,7 +12,7 @@ It exposes tools for tasks, decisions, facts, milestones, comments, and team mes
 - `GET /health`
 - `GET /.well-known/oauth-protected-resource`
 - `GET /.well-known/oauth-authorization-server`
-- `POST /agent/mcp`
+- `POST /`
 
 ## Configuration
 Set these environment variables:
