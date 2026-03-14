@@ -1,10 +1,7 @@
-import asyncio
 import contextlib
 import json
 import os
 import re
-import time
-from collections import defaultdict, deque
 from contextvars import ContextVar
 from typing import Any
 
@@ -39,14 +36,7 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 CORS_ORIGINS = _parse_cors_origins(os.getenv("CORS_ORIGINS"))
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("MCP_REQUEST_TIMEOUT_SECONDS", "30"))
-MCP_UNAUTH_DISCOVERY_RATE_LIMIT_PER_MINUTE = int(os.getenv("MCP_UNAUTH_DISCOVERY_RATE_LIMIT_PER_MINUTE", "60"))
-MCP_UNAUTH_DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE = int(
-    os.getenv("MCP_UNAUTH_DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE", "240")
-)
-MCP_UNAUTH_DISCOVERY_MAX_INFLIGHT = int(os.getenv("MCP_UNAUTH_DISCOVERY_MAX_INFLIGHT", "8"))
-MCP_UNAUTH_DISCOVERY_MAX_ACQUIRE_WAIT_SECONDS = float(os.getenv("MCP_UNAUTH_DISCOVERY_MAX_ACQUIRE_WAIT_SECONDS", "0.05"))
 MCP_UNAUTH_DISCOVERY_METHOD_SCAN_BYTES = int(os.getenv("MCP_UNAUTH_DISCOVERY_METHOD_SCAN_BYTES", "8192"))
-MCP_UNAUTH_TOOLS_LIST_CACHE_TTL_SECONDS = float(os.getenv("MCP_UNAUTH_TOOLS_LIST_CACHE_TTL_SECONDS", "120"))
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.2"))
 SENTRY_SEND_DEFAULT_PII = os.getenv("SENTRY_SEND_DEFAULT_PII", "false").lower() == "true"
@@ -90,23 +80,10 @@ class MCPAuthMiddleware:
         "tools/list",
     }
     _METHOD_PATTERN = re.compile(rb'"method"\s*:\s*"([^"]+)"')
-    _RATE_WINDOW_SECONDS = 60.0
 
     def __init__(self, app):
         self.app = app
-        self._mcp_server = mcp_server
-        self._rate_limit_per_minute = max(1, MCP_UNAUTH_DISCOVERY_RATE_LIMIT_PER_MINUTE)
-        self._global_rate_limit_per_minute = max(1, MCP_UNAUTH_DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE)
         self._method_scan_bytes = max(1024, MCP_UNAUTH_DISCOVERY_METHOD_SCAN_BYTES)
-        self._tools_list_cache_ttl_seconds = max(1.0, MCP_UNAUTH_TOOLS_LIST_CACHE_TTL_SECONDS)
-        self._tools_list_cache_expires_at = 0.0
-        self._tools_list_cache_payload: list[dict[str, Any]] | None = None
-        self._tools_list_cache_lock = asyncio.Lock()
-        self._rate_state: defaultdict[str, deque[float]] = defaultdict(deque)
-        self._rate_lock = asyncio.Lock()
-        self._discovery_max_inflight = max(1, MCP_UNAUTH_DISCOVERY_MAX_INFLIGHT)
-        self._discovery_acquire_wait_seconds = max(0.0, MCP_UNAUTH_DISCOVERY_MAX_ACQUIRE_WAIT_SECONDS)
-        self._discovery_semaphore = asyncio.Semaphore(self._discovery_max_inflight)
 
     def _verify_jwt(self, token: str) -> bool:
         try:
@@ -143,73 +120,10 @@ class MCPAuthMiddleware:
         async def replay_receive():
             if buffered_messages:
                 return buffered_messages.pop(0)
-            return {"type": "http.request", "body": b"", "more_body": False}
+            return await receive()
 
         return method, replay_receive, bytes(scanned_body)
 
-    def _extract_request_id(self, scanned_body: bytes) -> Any:
-        if not scanned_body:
-            return None
-        try:
-            payload = json.loads(scanned_body)
-        except json.JSONDecodeError:
-            return None
-        if isinstance(payload, dict):
-            return payload.get("id")
-        return None
-
-    def _client_id(self, scope, headers: dict[bytes, bytes]) -> str:
-        forwarded_for = headers.get(b"x-forwarded-for", b"").decode().strip()
-        if forwarded_for:
-            first_hop = forwarded_for.split(",")[0].strip()
-            if first_hop:
-                return first_hop
-        client = scope.get("client")
-        if isinstance(client, (list, tuple)) and client:
-            return str(client[0])
-        return "unknown"
-
-    async def _is_rate_limited(self, client_id: str) -> bool:
-        now = time.monotonic()
-        cutoff = now - self._RATE_WINDOW_SECONDS
-        async with self._rate_lock:
-            bucket = self._rate_state[client_id]
-            while bucket and bucket[0] <= cutoff:
-                bucket.popleft()
-            if len(bucket) >= self._rate_limit_per_minute:
-                return True
-            bucket.append(now)
-            return False
-
-    async def _is_globally_rate_limited(self) -> bool:
-        now = time.monotonic()
-        cutoff = now - self._RATE_WINDOW_SECONDS
-        async with self._rate_lock:
-            bucket = self._rate_state["__global_discovery__"]
-            while bucket and bucket[0] <= cutoff:
-                bucket.popleft()
-            if len(bucket) >= self._global_rate_limit_per_minute:
-                return True
-            bucket.append(now)
-            return False
-
-    async def _get_cached_tools_list_payload(self) -> list[dict[str, Any]]:
-        now = time.monotonic()
-        cached_payload = self._tools_list_cache_payload
-        if cached_payload is not None and now < self._tools_list_cache_expires_at:
-            return cached_payload
-
-        async with self._tools_list_cache_lock:
-            now = time.monotonic()
-            cached_payload = self._tools_list_cache_payload
-            if cached_payload is not None and now < self._tools_list_cache_expires_at:
-                return cached_payload
-
-            tools = await self._mcp_server.list_tools()
-            payload = [tool.model_dump(by_alias=True, exclude_none=True) for tool in tools]
-            self._tools_list_cache_payload = payload
-            self._tools_list_cache_expires_at = now + self._tools_list_cache_ttl_seconds
-            return payload
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
@@ -225,60 +139,9 @@ class MCPAuthMiddleware:
                     finally:
                         current_auth_token.reset(reset_token)
                     return
-            method, replay_receive, scanned_body = await self._extract_method_and_replay_receive(receive)
+            method, replay_receive, _ = await self._extract_method_and_replay_receive(receive)
             if method in self._PUBLIC_METHODS:
-                client_id = self._client_id(scope, headers)
-                if await self._is_rate_limited(client_id):
-                    response = JSONResponse(
-                        status_code=429,
-                        content={"error": "Rate limit exceeded for unauthenticated discovery requests"},
-                        headers={"Retry-After": "60"},
-                    )
-                    await response(scope, replay_receive, send)
-                    return
-                if await self._is_globally_rate_limited():
-                    response = JSONResponse(
-                        status_code=429,
-                        content={"error": "Global rate limit exceeded for unauthenticated discovery requests"},
-                        headers={"Retry-After": "60"},
-                    )
-                    await response(scope, replay_receive, send)
-                    return
-
-                acquired = False
-                try:
-                    await asyncio.wait_for(
-                        self._discovery_semaphore.acquire(),
-                        timeout=self._discovery_acquire_wait_seconds,
-                    )
-                    acquired = True
-                except TimeoutError:
-                    response = JSONResponse(
-                        status_code=429,
-                        content={"error": "Too many concurrent unauthenticated discovery requests"},
-                        headers={"Retry-After": "1"},
-                    )
-                    await response(scope, replay_receive, send)
-                    return
-
-                try:
-                    if method == "tools/list":
-                        request_id = self._extract_request_id(scanned_body)
-                        tools_payload = await self._get_cached_tools_list_payload()
-                        response_payload: dict[str, Any] = {
-                            "jsonrpc": "2.0",
-                            "result": {"tools": tools_payload},
-                        }
-                        if request_id is not None:
-                            response_payload["id"] = request_id
-                        response = JSONResponse(status_code=200, content=response_payload)
-                        await response(scope, replay_receive, send)
-                        return
-
-                    await self.app(scope, replay_receive, send)
-                finally:
-                    if acquired:
-                        self._discovery_semaphore.release()
+                await self.app(scope, replay_receive, send)
                 return
 
             prm_url = f"{MCP_SERVER_URL}/.well-known/oauth-protected-resource"
