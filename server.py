@@ -5,6 +5,7 @@ from typing import Any, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.server.streamable_http import TransportSecuritySettings
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from runtime import get_runtime
 
@@ -22,6 +23,27 @@ mcp_server = FastMCP("ProjectBrain", stateless_http=True, transport_security=_tr
 
 VALID_TASK_STATUSES = {"todo", "in_progress", "blocked", "done", "cancelled"}
 VALID_RESPONSE_MODES = {"human", "json", "both"}
+
+
+class TaskBatchUpdateItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(description="UUID of the task to update.")
+    title: Optional[str] = Field(default=None, description="Updated task title.")
+    description: Optional[str] = Field(default=None, description="Updated task description.")
+    status: Optional[str] = Field(default=None, description="Updated status.")
+    priority: Optional[str] = Field(default=None, description="Updated priority.")
+    estimate: Optional[int] = Field(default=None, description="Updated estimate.")
+    sort_order: Optional[int] = Field(default=None, description="Updated sort order.")
+    milestone_id: Optional[str] = Field(default=None, description="Updated milestone UUID; empty string clears it.")
+    assignee_id: Optional[str] = Field(default=None, description="Updated assignee UUID; empty string clears it.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_task_id_alias(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "id" not in value and "task_id" in value:
+            raise ValueError("Each updates item must include updates[].id.")
+        return value
 
 
 def _preview(value: Any, limit: int = 120) -> str:
@@ -424,7 +446,7 @@ async def tasks(
     depends_on_id: Optional[str] = None,
     comment_body: Optional[str] = None,
     items: Optional[list[dict[str, Any]]] = None,
-    updates: Optional[list[dict[str, Any]]] = None,
+    updates: Optional[list[TaskBatchUpdateItem]] = None,
 ) -> str:
     """Actions: list, create, update, delete, context, batch_create, batch_update, add_dependency, remove_dependency, list_dependencies, add_comment, list_comments."""
     try:
@@ -621,7 +643,11 @@ async def tasks(
                 return "Error: action 'batch_update' requires non-empty updates."
             normalized_updates: list[dict[str, Any]] = []
             for item in updates:
-                normalized = dict(item)
+                normalized = item.model_dump(mode="json", exclude_unset=True)
+                if "id" not in normalized:
+                    return "Error: Each updates item must include 'id'."
+                if "task_id" in normalized:
+                    return "Error: Each updates item must include updates[].id."
                 if normalized.get("status") and normalized["status"] not in VALID_TASK_STATUSES:
                     return f"Error: Invalid status '{normalized['status']}' for task {normalized.get('id', '(unknown)')}."
                 if normalized.get("milestone_id") == "":

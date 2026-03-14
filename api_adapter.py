@@ -40,6 +40,12 @@ current_auth_token: ContextVar[str | None] = ContextVar("current_auth_token", de
 
 class MCPAuthMiddleware:
     """ASGI auth middleware for MCP transport requests."""
+    _PUBLIC_METHODS = {
+        "initialize",
+        "notifications/initialized",
+        "ping",
+        "tools/list",
+    }
 
     def __init__(self, app):
         self.app = app
@@ -50,6 +56,40 @@ class MCPAuthMiddleware:
             return True
         except jwt.InvalidTokenError:
             return False
+
+    async def _extract_method_and_replay_receive(self, receive) -> tuple[str | None, Any]:
+        buffered_messages: list[dict[str, Any]] = []
+        body_chunks: list[bytes] = []
+
+        while True:
+            message = await receive()
+            buffered_messages.append(message)
+            if message.get("type") != "http.request":
+                if message.get("type") == "http.disconnect":
+                    break
+                continue
+            body_chunks.append(message.get("body", b""))
+            if not message.get("more_body", False):
+                break
+
+        body = b"".join(body_chunks)
+        method: str | None = None
+        if body:
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict):
+                maybe_method = payload.get("method")
+                if isinstance(maybe_method, str):
+                    method = maybe_method
+
+        async def replay_receive():
+            if buffered_messages:
+                return buffered_messages.pop(0)
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        return method, replay_receive
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
@@ -65,6 +105,10 @@ class MCPAuthMiddleware:
                     finally:
                         current_auth_token.reset(reset_token)
                     return
+            method, replay_receive = await self._extract_method_and_replay_receive(receive)
+            if method in self._PUBLIC_METHODS:
+                await self.app(scope, replay_receive, send)
+                return
 
             prm_url = f"{MCP_SERVER_URL}/.well-known/oauth-protected-resource"
             response = JSONResponse(
