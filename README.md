@@ -30,6 +30,12 @@ Set these environment variables:
 - `MCP_REQUEST_TIMEOUT_SECONDS` (default: `30`)
 - `MCP_UNAUTH_DISCOVERY_RATE_LIMIT_PER_MINUTE` (default: `60`)  
   Maximum unauthenticated discovery requests per client per minute (`initialize`, `notifications/initialized`, `ping`, `tools/list`).
+- `MCP_UNAUTH_DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE` (default: `240`)  
+  Maximum unauthenticated discovery requests across all clients per minute.
+- `MCP_UNAUTH_DISCOVERY_MAX_INFLIGHT` (default: `8`)  
+  Maximum concurrent unauthenticated discovery requests being processed at once.
+- `MCP_UNAUTH_DISCOVERY_MAX_ACQUIRE_WAIT_SECONDS` (default: `0.05`)  
+  How long an unauthenticated discovery request waits for an in-flight slot before returning `429`.
 - `MCP_UNAUTH_DISCOVERY_METHOD_SCAN_BYTES` (default: `8192`)  
   Max unauthenticated request bytes scanned to detect JSON-RPC `method` in lightweight middleware parsing.
 
