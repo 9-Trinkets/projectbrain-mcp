@@ -28,6 +28,10 @@ Set these environment variables:
 - `CORS_ORIGINS` (default: `["http://localhost:5173"]`)  
   Accepts either a JSON array or a comma-separated list.
 - `MCP_REQUEST_TIMEOUT_SECONDS` (default: `30`)
+- `MCP_UNAUTH_DISCOVERY_RATE_LIMIT_PER_MINUTE` (default: `60`)  
+  Maximum unauthenticated discovery requests per client per minute (`initialize`, `notifications/initialized`, `ping`, `tools/list`).
+- `MCP_UNAUTH_DISCOVERY_METHOD_SCAN_BYTES` (default: `8192`)  
+  Max unauthenticated request bytes scanned to detect JSON-RPC `method` in lightweight middleware parsing.
 
 ## Local development
 From repository root:

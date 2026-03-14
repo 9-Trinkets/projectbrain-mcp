@@ -1,6 +1,10 @@
+import asyncio
 import contextlib
 import json
 import os
+import re
+import time
+from collections import defaultdict, deque
 from contextvars import ContextVar
 from typing import Any
 
@@ -34,6 +38,8 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 CORS_ORIGINS = _parse_cors_origins(os.getenv("CORS_ORIGINS"))
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("MCP_REQUEST_TIMEOUT_SECONDS", "30"))
+MCP_UNAUTH_DISCOVERY_RATE_LIMIT_PER_MINUTE = int(os.getenv("MCP_UNAUTH_DISCOVERY_RATE_LIMIT_PER_MINUTE", "60"))
+MCP_UNAUTH_DISCOVERY_METHOD_SCAN_BYTES = int(os.getenv("MCP_UNAUTH_DISCOVERY_METHOD_SCAN_BYTES", "8192"))
 
 current_auth_token: ContextVar[str | None] = ContextVar("current_auth_token", default=None)
 
@@ -46,9 +52,15 @@ class MCPAuthMiddleware:
         "ping",
         "tools/list",
     }
+    _METHOD_PATTERN = re.compile(rb'"method"\s*:\s*"([^"]+)"')
+    _RATE_WINDOW_SECONDS = 60.0
 
     def __init__(self, app):
         self.app = app
+        self._rate_limit_per_minute = max(1, MCP_UNAUTH_DISCOVERY_RATE_LIMIT_PER_MINUTE)
+        self._method_scan_bytes = max(1024, MCP_UNAUTH_DISCOVERY_METHOD_SCAN_BYTES)
+        self._rate_state: defaultdict[str, deque[float]] = defaultdict(deque)
+        self._rate_lock = asyncio.Lock()
 
     def _verify_jwt(self, token: str) -> bool:
         try:
@@ -59,7 +71,7 @@ class MCPAuthMiddleware:
 
     async def _extract_method_and_replay_receive(self, receive) -> tuple[str | None, Any]:
         buffered_messages: list[dict[str, Any]] = []
-        body_chunks: list[bytes] = []
+        scanned_body = bytearray()
 
         while True:
             message = await receive()
@@ -68,21 +80,19 @@ class MCPAuthMiddleware:
                 if message.get("type") == "http.disconnect":
                     break
                 continue
-            body_chunks.append(message.get("body", b""))
+            chunk = message.get("body", b"")
+            if chunk and len(scanned_body) < self._method_scan_bytes:
+                remaining = self._method_scan_bytes - len(scanned_body)
+                scanned_body.extend(chunk[:remaining])
             if not message.get("more_body", False):
                 break
 
-        body = b"".join(body_chunks)
         method: str | None = None
-        if body:
-            try:
-                payload = json.loads(body)
-            except json.JSONDecodeError:
-                payload = None
-            if isinstance(payload, dict):
-                maybe_method = payload.get("method")
-                if isinstance(maybe_method, str):
-                    method = maybe_method
+        if scanned_body:
+            match = self._METHOD_PATTERN.search(bytes(scanned_body))
+            if match:
+                with contextlib.suppress(UnicodeDecodeError):
+                    method = match.group(1).decode()
 
         async def replay_receive():
             if buffered_messages:
@@ -90,6 +100,29 @@ class MCPAuthMiddleware:
             return {"type": "http.request", "body": b"", "more_body": False}
 
         return method, replay_receive
+
+    def _client_id(self, scope, headers: dict[bytes, bytes]) -> str:
+        forwarded_for = headers.get(b"x-forwarded-for", b"").decode().strip()
+        if forwarded_for:
+            first_hop = forwarded_for.split(",")[0].strip()
+            if first_hop:
+                return first_hop
+        client = scope.get("client")
+        if isinstance(client, (list, tuple)) and client:
+            return str(client[0])
+        return "unknown"
+
+    async def _is_rate_limited(self, client_id: str) -> bool:
+        now = time.monotonic()
+        cutoff = now - self._RATE_WINDOW_SECONDS
+        async with self._rate_lock:
+            bucket = self._rate_state[client_id]
+            while bucket and bucket[0] <= cutoff:
+                bucket.popleft()
+            if len(bucket) >= self._rate_limit_per_minute:
+                return True
+            bucket.append(now)
+            return False
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
@@ -107,6 +140,15 @@ class MCPAuthMiddleware:
                     return
             method, replay_receive = await self._extract_method_and_replay_receive(receive)
             if method in self._PUBLIC_METHODS:
+                client_id = self._client_id(scope, headers)
+                if await self._is_rate_limited(client_id):
+                    response = JSONResponse(
+                        status_code=429,
+                        content={"error": "Rate limit exceeded for unauthenticated discovery requests"},
+                        headers={"Retry-After": "60"},
+                    )
+                    await response(scope, replay_receive, send)
+                    return
                 await self.app(scope, replay_receive, send)
                 return
 
