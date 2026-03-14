@@ -73,6 +73,7 @@ _init_sentry()
 
 class MCPAuthMiddleware:
     """ASGI auth middleware for MCP transport requests."""
+
     _PUBLIC_METHODS = {
         "initialize",
         "notifications/initialized",
@@ -85,12 +86,45 @@ class MCPAuthMiddleware:
         self.app = app
         self._method_scan_bytes = max(1024, MCP_UNAUTH_DISCOVERY_METHOD_SCAN_BYTES)
 
+    def _parse_auth_header(self, scope: dict[str, Any]) -> str:
+        headers = dict(scope.get("headers", []))
+        return headers.get(b"authorization", b"").decode()
+
+    def _parse_bearer_token(self, auth_header: str) -> str | None:
+        if not auth_header.startswith("Bearer "):
+            return None
+        token = auth_header[7:]
+        if not token:
+            return None
+        return token
+
     def _verify_jwt(self, token: str) -> bool:
         try:
             jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
             return True
         except jwt.InvalidTokenError:
             return False
+
+    def _validate_token(self, token: str | None) -> bool:
+        if not token:
+            return False
+        return token.startswith("pb_") or self._verify_jwt(token)
+
+    def _method_is_public(self, method: str | None) -> bool:
+        return method in self._PUBLIC_METHODS
+
+    def _build_unauthorized_response(self) -> JSONResponse:
+        prm_url = f"{MCP_SERVER_URL}/.well-known/oauth-protected-resource"
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Missing or invalid authorization token"},
+            headers={
+                "WWW-Authenticate": (
+                    f'Bearer realm="mcp", '
+                    f'resource_metadata="{prm_url}"'
+                )
+            },
+        )
 
     async def _extract_method_and_replay_receive(self, receive) -> tuple[str | None, Any, bytes]:
         buffered_messages: list[dict[str, Any]] = []
@@ -124,37 +158,29 @@ class MCPAuthMiddleware:
 
         return method, replay_receive, bytes(scanned_body)
 
+    async def _inspect_method_for_public_allowlist(self, receive) -> tuple[bool, Any]:
+        method, replay_receive, _ = await self._extract_method_and_replay_receive(receive)
+        return self._method_is_public(method), replay_receive
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
-            headers = dict(scope.get("headers", []))
-            auth_header = headers.get(b"authorization", b"").decode()
+            auth_header = self._parse_auth_header(scope)
+            token = self._parse_bearer_token(auth_header)
 
-            if auth_header.startswith("Bearer "):
-                token = auth_header[7:]
-                if token.startswith("pb_") or self._verify_jwt(token):
-                    reset_token = current_auth_token.set(token)
-                    try:
-                        await self.app(scope, receive, send)
-                    finally:
-                        current_auth_token.reset(reset_token)
-                    return
-            method, replay_receive, _ = await self._extract_method_and_replay_receive(receive)
-            if method in self._PUBLIC_METHODS:
+            if self._validate_token(token):
+                reset_token = current_auth_token.set(token)
+                try:
+                    await self.app(scope, receive, send)
+                finally:
+                    current_auth_token.reset(reset_token)
+                return
+
+            is_public_method, replay_receive = await self._inspect_method_for_public_allowlist(receive)
+            if is_public_method:
                 await self.app(scope, replay_receive, send)
                 return
 
-            prm_url = f"{MCP_SERVER_URL}/.well-known/oauth-protected-resource"
-            response = JSONResponse(
-                status_code=401,
-                content={"error": "Missing or invalid authorization token"},
-                headers={
-                    "WWW-Authenticate": (
-                        f'Bearer realm="mcp", '
-                        f'resource_metadata="{prm_url}"'
-                    )
-                },
-            )
+            response = self._build_unauthorized_response()
             await response(scope, receive, send)
             return
 
