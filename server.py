@@ -225,7 +225,7 @@ def _json_envelope(tool: str, data: dict, query: Optional[dict] = None) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-@mcp_server.tool(description="Unified project context and discovery operations")
+@mcp_server.tool(description="Project context and discovery operations")
 async def context(
     action: str = "session",
     project_id: Optional[str] = None,
@@ -369,7 +369,7 @@ async def context(
         return f"Error: {exc}"
 
 
-@mcp_server.tool(description="Unified project CRUD operations")
+@mcp_server.tool(description="Project CRUD operations")
 async def projects(
     action: str = "list",
     project_id: Optional[str] = None,
@@ -423,7 +423,7 @@ async def projects(
         return f"Error: {exc}"
 
 
-@mcp_server.tool(description="Unified task operations including dependencies and comments")
+@mcp_server.tool(description="Task operations including dependencies and comments")
 async def tasks(
     action: str,
     project_id: Optional[str] = None,
@@ -739,7 +739,7 @@ async def tasks(
         return f"Error: {exc}"
 
 
-@mcp_server.tool(description="Unified decision/fact/skill operations")
+@mcp_server.tool(description="Decision/fact/skill operations")
 async def knowledge(
     entity: str,
     action: str,
@@ -929,7 +929,7 @@ async def knowledge(
         return f"Error: {exc}"
 
 
-@mcp_server.tool(description="Unified team, messaging, and identity operations")
+@mcp_server.tool(description="Team, messaging, and identity operations")
 async def collaboration(
     action: str,
     recipient_id: Optional[str] = None,
