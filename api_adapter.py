@@ -10,7 +10,7 @@ from typing import Any
 
 import jwt
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
 from runtime import MCPRuntimeConfig, MCPSettings, configure_runtime
@@ -229,3 +229,8 @@ app.router.routes.append(Route("/", endpoint=protected_mcp_endpoint, include_in_
 @app.get("/health")
 async def health() -> dict[str, Any]:
     return {"status": "ok"}
+
+
+@app.get("/robots.txt", include_in_schema=False)
+async def robots_txt() -> PlainTextResponse:
+    return PlainTextResponse("User-agent: *\nDisallow: /\n")
