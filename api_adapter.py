@@ -79,6 +79,9 @@ class MCPAuthMiddleware:
         "notifications/initialized",
         "ping",
         "tools/list",
+        "resources/list",
+        "resources/templates/list",
+        "prompts/list",
     }
     _METHOD_PATTERN = re.compile(rb'"method"\s*:\s*"([^"]+)"')
 

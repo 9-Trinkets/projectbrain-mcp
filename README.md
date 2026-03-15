@@ -4,7 +4,7 @@ It exposes tools for tasks, decisions, facts, milestones, comments, and team mes
 
 ## What it does
 - Serves MCP tools over HTTPS at `https://mcp.projectbrain.tools`
-- Allows unauthenticated MCP discovery requests for `initialize`, `notifications/initialized`, `ping`, and `tools/list`
+- Allows unauthenticated MCP discovery requests for `initialize`, `notifications/initialized`, `ping`, `tools/list`, `resources/list`, `resources/templates/list`, and `prompts/list`
 - Authenticates bearer tokens (JWT or API key) for all tool execution and data access
 - Provides MCP OAuth metadata endpoints
 - Executes tool actions against the Project Brain API

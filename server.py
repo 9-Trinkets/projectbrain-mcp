@@ -228,6 +228,87 @@ def _json_envelope(tool: str, data: dict, query: Optional[dict] = None) -> str:
         payload["meta"]["query"] = query
     return json.dumps(payload, ensure_ascii=False)
 
+@mcp_server.resource(
+    "projectbrain://server/overview",
+    name="server_overview",
+    title="Project Brain MCP Server Overview",
+    description="High-level capabilities and discovery metadata for this MCP server.",
+    mime_type="application/json",
+)
+async def server_overview_resource() -> str:
+    payload = {
+        "name": "ProjectBrain",
+        "transport": "streamable-http",
+        "discovery_methods": [
+            "initialize",
+            "notifications/initialized",
+            "ping",
+            "tools/list",
+            "resources/list",
+            "resources/templates/list",
+            "prompts/list",
+        ],
+        "tools": ["context", "projects", "tasks", "knowledge", "collaboration"],
+        "notes": (
+            "Unauthenticated discovery is enabled for list/initialize methods only. "
+            "Tool execution and data access require a bearer token."
+        ),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+@mcp_server.resource(
+    "projectbrain://playbooks/default-workflow",
+    name="default_workflow_playbook",
+    title="Project Brain Default Workflow",
+    description="Recommended baseline workflow for navigating and executing work in Project Brain.",
+    mime_type="text/plain",
+)
+async def default_workflow_playbook_resource() -> str:
+    return (
+        "1. projects(action=\"list\")\n"
+        "2. context(action=\"session\", project_id=...)\n"
+        "3. tasks(action=\"list\", project_id=..., status=\"todo\")\n"
+        "4. tasks(action=\"update\", task_id=..., status=\"in_progress\")\n"
+        "5. Do the work and record comments/knowledge\n"
+        "6. tasks(action=\"update\", task_id=..., status=\"done\")"
+    )
+
+
+@mcp_server.prompt(
+    name="project_brain_session_bootstrap",
+    title="Project Brain Session Bootstrap",
+    description="Prompt template for starting work in a specific project with the context and task tools.",
+)
+def project_brain_session_bootstrap_prompt(project_id: str) -> str:
+    return (
+        "Start a focused Project Brain session for this project.\n"
+        f"- project_id: {project_id}\n"
+        "1) Call context(action=\"session\", project_id=project_id).\n"
+        "2) Summarize active priorities and blockers.\n"
+        "3) Call tasks(action=\"list\", project_id=project_id, status=\"todo\").\n"
+        "4) Recommend the top task to claim next with rationale."
+    )
+
+
+@mcp_server.prompt(
+    name="project_brain_task_execution",
+    title="Project Brain Task Execution",
+    description="Prompt template for planning and executing a task while keeping lifecycle state accurate.",
+)
+def project_brain_task_execution_prompt(task_id: str, project_id: Optional[str] = None) -> str:
+    project_line = f"- project_id: {project_id}\n" if project_id else ""
+    return (
+        "Execute this Project Brain task methodically.\n"
+        f"- task_id: {task_id}\n"
+        f"{project_line}"
+        "1) Load task context with tasks(action=\"context\", task_id=task_id).\n"
+        "2) Move task to in_progress if it is still todo.\n"
+        "3) Propose implementation steps and expected validation.\n"
+        "4) Add a concise progress comment.\n"
+        "5) Mark done only after verification."
+    )
+
 
 @mcp_server.tool(description="Project context and discovery operations")
 async def context(

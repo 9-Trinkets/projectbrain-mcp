@@ -29,12 +29,24 @@ async def _echo_jsonrpc_app(scope, receive, send):
 
 
 @pytest.mark.asyncio
-async def test_tools_list_allowed_without_auth():
+@pytest.mark.parametrize(
+    "method",
+    [
+        "initialize",
+        "notifications/initialized",
+        "ping",
+        "tools/list",
+        "resources/list",
+        "resources/templates/list",
+        "prompts/list",
+    ],
+)
+async def test_public_discovery_methods_allowed_without_auth(method: str):
     app = MCPAuthMiddleware(_echo_jsonrpc_app)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post("/", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        response = await client.post("/", json={"jsonrpc": "2.0", "id": 1, "method": method})
     assert response.status_code == 200
-    assert response.json()["method"] == "tools/list"
+    assert response.json()["method"] == method
     assert response.json()["token"] is None
 
 
