@@ -11,6 +11,7 @@ from actions.knowledge_actions import (
     validate_knowledge_entity,
 )
 from actions.milestone_actions import TASKS_MILESTONE_ACTION_HANDLERS
+from actions.workflow_actions import PROJECTS_WORKFLOW_ACTION_HANDLERS
 from actions.tasks_actions import (
     TASKS_CORE_ACTION_HANDLERS,
     TASKS_RELATIONSHIP_ACTION_HANDLERS,
@@ -218,8 +219,8 @@ async def _api_patch(path: str, *, body: Optional[dict[str, Any]] = None, client
     return await _api_request("PATCH", path, json_body=body, client=client)
 
 
-async def _api_delete(path: str, *, client: Optional[httpx.AsyncClient] = None) -> None:
-    await _api_request("DELETE", path, client=client)
+async def _api_delete(path: str, *, params: Optional[dict[str, Any]] = None, client: Optional[httpx.AsyncClient] = None) -> None:
+    await _api_request("DELETE", path, params=params, client=client)
 
 
 def _require_fields(action: str, **kwargs: Any) -> Optional[str]:
@@ -461,7 +462,7 @@ _PROJECTS_ACTION_HANDLERS = {
 
 
 @mcp_server.tool(
-    description="Project CRUD operations",
+    description="Project CRUD and workflow management operations",
     annotations=_tool_annotations(
         title="Projects",
         read_only=False,
@@ -480,17 +481,44 @@ _PROJECTS_ACTION_HANDLERS = {
     ),
 )
 async def projects(
-    action: Annotated[str, Field(description="Project action: list, get, create, or update.")] = "list",
-    project_id: Annotated[Optional[str], Field(description="Project UUID required for get and update actions.")] = None,
+    action: Annotated[str, Field(description="Project action: list, get, create, update, get_workflow, add_workflow_stage, update_workflow_stage, delete_workflow_stage, or reorder_workflow_stages.")] = "list",
+    project_id: Annotated[Optional[str], Field(description="Project UUID required for get, update, and workflow actions.")] = None,
     name: Annotated[Optional[str], Field(description="Project name used by create and update actions.")] = None,
     description: Annotated[Optional[str], Field(description="Project description used by create and update actions.")] = None,
+    stage_id: Annotated[Optional[str], Field(description="Workflow stage UUID used by update_workflow_stage and delete_workflow_stage actions.")] = None,
+    stage_name: Annotated[Optional[str], Field(description="Stage name used by add_workflow_stage and update_workflow_stage actions.")] = None,
+    role_constraint: Annotated[Optional[str], Field(description="Role constraint for the stage used by add_workflow_stage and update_workflow_stage actions.")] = None,
+    stage_ids: Annotated[Optional[list[str]], Field(description="Ordered stage UUID list used by reorder_workflow_stages action.")] = None,
+    migrate_to_stage_id: Annotated[Optional[str], Field(description="Stage UUID to migrate tasks to when deleting a stage with tasks.")] = None,
+    response_mode: Annotated[str, Field(description="Output format: human, json, or both (where supported).")] = "human",
 ) -> str:
-    """Actions: list, get, create, update."""
+    """Actions: list, get, create, update, get_workflow, add_workflow_stage, update_workflow_stage, delete_workflow_stage, reorder_workflow_stages."""
     try:
-        handler = _PROJECTS_ACTION_HANDLERS.get(action)
-        if handler is None:
-            return "Error: action must be one of: list, get, create, update."
-        return await handler(project_id=project_id, name=name, description=description)
+        action_args: dict[str, Any] = {
+            "api_get": _api_get,
+            "api_post": _api_post,
+            "api_patch": _api_patch,
+            "api_delete": _api_delete,
+            "require_fields": _require_fields,
+            "validate_response_mode": _validate_response_mode,
+            "json_envelope": _json_envelope,
+            "project_id": project_id,
+            "name": name,
+            "description": description,
+            "stage_id": stage_id,
+            "stage_name": stage_name,
+            "role_constraint": role_constraint,
+            "stage_ids": stage_ids,
+            "migrate_to_stage_id": migrate_to_stage_id,
+            "response_mode": response_mode,
+        }
+        core_handler = _PROJECTS_ACTION_HANDLERS.get(action)
+        if core_handler is not None:
+            return await core_handler(**action_args)
+        workflow_handler = PROJECTS_WORKFLOW_ACTION_HANDLERS.get(action)
+        if workflow_handler is not None:
+            return await workflow_handler(**action_args)
+        return "Error: action must be one of: list, get, create, update, get_workflow, add_workflow_stage, update_workflow_stage, delete_workflow_stage, reorder_workflow_stages."
     except Exception as exc:
         return f"Error: {exc}"
 
