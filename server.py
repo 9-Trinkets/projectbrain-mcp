@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 import httpx
 from actions.collab_actions import COLLABORATION_ACTION_HANDLERS as COLLAB_MODULE_HANDLERS
@@ -18,6 +18,8 @@ from actions.tasks_actions import (
 )
 from mcp.server.fastmcp import FastMCP
 from mcp.server.streamable_http import TransportSecuritySettings
+from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from runtime import get_runtime
 
@@ -36,6 +38,54 @@ mcp_server = FastMCP("ProjectBrain", stateless_http=True, transport_security=_tr
 VALID_TASK_STATUSES = {"todo", "in_progress", "blocked", "done", "cancelled"}
 VALID_MILESTONE_STATUSES = {"planned", "in_progress", "completed", "cancelled"}
 VALID_RESPONSE_MODES = {"human", "json", "both"}
+DEFAULT_TOOL_ANNOTATION_HINTS = {
+    "readOnlyHint": False,
+    "destructiveHint": True,
+    "idempotentHint": False,
+    "openWorldHint": True,
+}
+
+
+def _tool_annotations(
+    *,
+    title: str,
+    read_only: Optional[bool] = None,
+    destructive: Optional[bool] = None,
+    idempotent: Optional[bool] = None,
+    open_world: Optional[bool] = None,
+) -> ToolAnnotations:
+    """Build MCP tool annotations with explicit defaults when hints are omitted."""
+    return ToolAnnotations(
+        title=title,
+        readOnlyHint=DEFAULT_TOOL_ANNOTATION_HINTS["readOnlyHint"] if read_only is None else read_only,
+        destructiveHint=DEFAULT_TOOL_ANNOTATION_HINTS["destructiveHint"] if destructive is None else destructive,
+        idempotentHint=DEFAULT_TOOL_ANNOTATION_HINTS["idempotentHint"] if idempotent is None else idempotent,
+        openWorldHint=DEFAULT_TOOL_ANNOTATION_HINTS["openWorldHint"] if open_world is None else open_world,
+    )
+
+
+def _tool_meta(
+    *,
+    risk_level: str,
+    latency_class: str,
+    cost_class: str,
+    auth_required: bool = True,
+    deprecated: bool = False,
+    read_only: Optional[bool] = None,
+    idempotent: Optional[bool] = None,
+) -> dict[str, Any]:
+    """Attach custom planning/safety metadata to tool descriptors."""
+    return {
+        "risk_level": risk_level,
+        "latency_class": latency_class,
+        "cost_class": cost_class,
+        "auth_required": auth_required,
+        "deprecated": deprecated,
+        "read_only": DEFAULT_TOOL_ANNOTATION_HINTS["readOnlyHint"] if read_only is None else read_only,
+        "idempotent": DEFAULT_TOOL_ANNOTATION_HINTS["idempotentHint"] if idempotent is None else idempotent,
+        "annotation_defaults": dict(DEFAULT_TOOL_ANNOTATION_HINTS),
+    }
+
 def _preview(value: Any, limit: int = 120) -> str:
     if value is None:
         return ""
@@ -310,14 +360,32 @@ def project_brain_task_execution_prompt(task_id: str, project_id: Optional[str] 
     )
 
 
-@mcp_server.tool(description="Project context and discovery operations")
+@mcp_server.tool(
+    description="Project context and discovery operations",
+    annotations=_tool_annotations(
+        title="Project Context",
+        read_only=True,
+        destructive=False,
+        idempotent=True,
+        open_world=False,
+    ),
+    meta=_tool_meta(
+        risk_level="low",
+        latency_class="network",
+        cost_class="low",
+        auth_required=True,
+        deprecated=False,
+        read_only=True,
+        idempotent=True,
+    ),
+)
 async def context(
-    action: str = "session",
-    project_id: Optional[str] = None,
-    since: Optional[str] = None,
-    q: Optional[str] = None,
-    limit: int = 5,
-    full_tool_mode: bool = False,
+    action: Annotated[str, Field(description="Context action: session, summary, changes, search, or shortlist.")] = "session",
+    project_id: Annotated[Optional[str], Field(description="Project UUID used by session/summary/changes/search actions.")] = None,
+    since: Annotated[Optional[str], Field(description="ISO-8601 timestamp used by changes action to bound results.")] = None,
+    q: Annotated[Optional[str], Field(description="Search query used by search/shortlist actions.")] = None,
+    limit: Annotated[int, Field(description="Maximum number of results to return for list-like context actions.")] = 5,
+    full_tool_mode: Annotated[bool, Field(description="When true, shortlist includes full operation catalog instead of top-ranked subset.")] = False,
 ) -> str:
     """Actions: session, summary, changes, search, shortlist."""
     try:
@@ -392,12 +460,30 @@ _PROJECTS_ACTION_HANDLERS = {
 }
 
 
-@mcp_server.tool(description="Project CRUD operations")
+@mcp_server.tool(
+    description="Project CRUD operations",
+    annotations=_tool_annotations(
+        title="Projects",
+        read_only=False,
+        destructive=False,
+        idempotent=False,
+        open_world=False,
+    ),
+    meta=_tool_meta(
+        risk_level="medium",
+        latency_class="network",
+        cost_class="low",
+        auth_required=True,
+        deprecated=False,
+        read_only=False,
+        idempotent=False,
+    ),
+)
 async def projects(
-    action: str = "list",
-    project_id: Optional[str] = None,
-    name: Optional[str] = None,
-    description: Optional[str] = None,
+    action: Annotated[str, Field(description="Project action: list, get, create, or update.")] = "list",
+    project_id: Annotated[Optional[str], Field(description="Project UUID required for get and update actions.")] = None,
+    name: Annotated[Optional[str], Field(description="Project name used by create and update actions.")] = None,
+    description: Annotated[Optional[str], Field(description="Project description used by create and update actions.")] = None,
 ) -> str:
     """Actions: list, get, create, update."""
     try:
@@ -409,32 +495,58 @@ async def projects(
         return f"Error: {exc}"
 
 
-@mcp_server.tool(description="Task operations including dependencies and comments")
+@mcp_server.tool(
+    description="Task operations including dependencies and comments",
+    annotations=_tool_annotations(
+        title="Tasks",
+        read_only=False,
+        destructive=True,
+        idempotent=False,
+        open_world=False,
+    ),
+    meta=_tool_meta(
+        risk_level="high",
+        latency_class="network",
+        cost_class="medium",
+        auth_required=True,
+        deprecated=False,
+        read_only=False,
+        idempotent=False,
+    ),
+)
 async def tasks(
-    action: str,
-    project_id: Optional[str] = None,
-    task_id: Optional[str] = None,
-    title: Optional[str] = None,
-    description: Optional[str] = None,
-    due_date: Optional[str] = None,
-    status: Optional[str] = None,
-    priority: Optional[str] = None,
-    estimate: Optional[int] = None,
-    sort_order: Optional[int] = None,
-    milestone_id: Optional[str] = None,
-    milestone_ids: Optional[list[str]] = None,
-    assignee_id: Optional[str] = None,
-    q: Optional[str] = None,
-    q_any: Optional[list[str]] = None,
-    q_all: Optional[list[str]] = None,
-    q_not: Optional[list[str]] = None,
-    cursor: Optional[str] = None,
-    limit: Optional[int] = None,
-    response_mode: str = "human",
-    depends_on_id: Optional[str] = None,
-    comment_body: Optional[str] = None,
-    items: Optional[list[dict[str, Any]]] = None,
-    updates: Optional[list[TaskBatchUpdateItem]] = None,
+    action: Annotated[
+        str,
+        Field(
+            description=(
+                "Task action to execute, for example list/create/update/delete/context, "
+                "batch operations, dependency operations, comment operations, and milestone operations."
+            )
+        ),
+    ],
+    project_id: Annotated[Optional[str], Field(description="Project UUID used by project-scoped task and milestone actions.")] = None,
+    task_id: Annotated[Optional[str], Field(description="Task UUID used by task-scoped actions such as update/delete/context/comments/dependencies.")] = None,
+    title: Annotated[Optional[str], Field(description="Task or milestone title for create/update actions.")] = None,
+    description: Annotated[Optional[str], Field(description="Task or milestone description for create/update actions.")] = None,
+    due_date: Annotated[Optional[str], Field(description="Milestone due date (ISO-8601 date string) for create_milestone/update_milestone actions.")] = None,
+    status: Annotated[Optional[str], Field(description="Target task or milestone status value for create/update operations.")] = None,
+    priority: Annotated[Optional[str], Field(description="Task priority value for create/update operations.")] = None,
+    estimate: Annotated[Optional[int], Field(description="Task estimate value for create/update operations.")] = None,
+    sort_order: Annotated[Optional[int], Field(description="Task sort order value for create/update operations.")] = None,
+    milestone_id: Annotated[Optional[str], Field(description="Milestone UUID for filtering, assignment, retrieval, update, or deletion actions.")] = None,
+    milestone_ids: Annotated[Optional[list[str]], Field(description="Ordered milestone UUID list used by reorder_milestones action.")] = None,
+    assignee_id: Annotated[Optional[str], Field(description="Assignee UUID for task create/update actions.")] = None,
+    q: Annotated[Optional[str], Field(description="Search text used by list/list_milestones actions.")] = None,
+    q_any: Annotated[Optional[list[str]], Field(description="Task list filter: match tasks containing any of these terms.")] = None,
+    q_all: Annotated[Optional[list[str]], Field(description="Task list filter: match tasks containing all of these terms.")] = None,
+    q_not: Annotated[Optional[list[str]], Field(description="Task list filter: exclude tasks containing any of these terms.")] = None,
+    cursor: Annotated[Optional[str], Field(description="Pagination cursor used by task list action.")] = None,
+    limit: Annotated[Optional[int], Field(description="Maximum number of results to return for list actions.")] = None,
+    response_mode: Annotated[str, Field(description="Output format: human, json, or both (where supported).")] = "human",
+    depends_on_id: Annotated[Optional[str], Field(description="Dependency task UUID used by add_dependency/remove_dependency actions.")] = None,
+    comment_body: Annotated[Optional[str], Field(description="Comment body text used by add_comment action.")] = None,
+    items: Annotated[Optional[list[dict[str, Any]]], Field(description="Task payload list used by batch_create action.")] = None,
+    updates: Annotated[Optional[list[TaskBatchUpdateItem]], Field(description="Structured update payload list used by batch_update action.")] = None,
 ) -> str:
     """Actions: list, create, update, delete, context, batch_create, batch_update, add_dependency, remove_dependency, list_dependencies, add_comment, list_comments, list_milestones, get_milestone, create_milestone, update_milestone, delete_milestone, reorder_milestones."""
     try:
@@ -493,21 +605,39 @@ async def tasks(
         return f"Error: {exc}"
 
 
-@mcp_server.tool(description="Decision/fact/skill operations")
+@mcp_server.tool(
+    description="Decision/fact/skill operations",
+    annotations=_tool_annotations(
+        title="Knowledge",
+        read_only=False,
+        destructive=True,
+        idempotent=False,
+        open_world=False,
+    ),
+    meta=_tool_meta(
+        risk_level="medium",
+        latency_class="network",
+        cost_class="low",
+        auth_required=True,
+        deprecated=False,
+        read_only=False,
+        idempotent=False,
+    ),
+)
 async def knowledge(
-    entity: str,
-    action: str,
-    project_id: Optional[str] = None,
-    item_id: Optional[str] = None,
-    title: Optional[str] = None,
-    body: Optional[str] = None,
-    rationale: Optional[str] = None,
-    task_id: Optional[str] = None,
-    category: Optional[str] = None,
-    tags: Optional[list[str]] = None,
-    q: Optional[str] = None,
-    cursor: Optional[str] = None,
-    limit: Optional[int] = None,
+    entity: Annotated[str, Field(description="Knowledge entity type: decision, fact, or skill.")],
+    action: Annotated[str, Field(description="Knowledge action: list, get, create, update, or delete.")],
+    project_id: Annotated[Optional[str], Field(description="Project UUID for entity-scoped knowledge operations.")] = None,
+    item_id: Annotated[Optional[str], Field(description="Knowledge item UUID used by get/update/delete actions.")] = None,
+    title: Annotated[Optional[str], Field(description="Knowledge item title used by create/update actions.")] = None,
+    body: Annotated[Optional[str], Field(description="Knowledge item body content used by create/update actions.")] = None,
+    rationale: Annotated[Optional[str], Field(description="Decision rationale text used by decision create/update actions.")] = None,
+    task_id: Annotated[Optional[str], Field(description="Related task UUID linked to knowledge entries.")] = None,
+    category: Annotated[Optional[str], Field(description="Category label for knowledge classification.")] = None,
+    tags: Annotated[Optional[list[str]], Field(description="Tag list for filtering and classification.")] = None,
+    q: Annotated[Optional[str], Field(description="Search query for list action filtering.")] = None,
+    cursor: Annotated[Optional[str], Field(description="Pagination cursor for list action.")] = None,
+    limit: Annotated[Optional[int], Field(description="Maximum items to return for list action.")] = None,
 ) -> str:
     """Entity: decision|fact|skill. Actions: list, get, create, update, delete."""
     normalized_entity = normalize_knowledge_entity(entity)
@@ -542,19 +672,45 @@ async def knowledge(
         return f"Error: {exc}"
 
 
-@mcp_server.tool(description="Team, messaging, and identity operations")
+@mcp_server.tool(
+    description="Team, messaging, and identity operations",
+    annotations=_tool_annotations(
+        title="Collaboration",
+        read_only=False,
+        destructive=False,
+        idempotent=False,
+        open_world=False,
+    ),
+    meta=_tool_meta(
+        risk_level="medium",
+        latency_class="network",
+        cost_class="low",
+        auth_required=True,
+        deprecated=False,
+        read_only=False,
+        idempotent=False,
+    ),
+)
 async def collaboration(
-    action: str,
-    recipient_id: Optional[str] = None,
-    body: Optional[str] = None,
-    message_type: str = "info",
-    subject: Optional[str] = None,
-    include_read: bool = False,
-    mark_as_read: bool = False,
-    description: Optional[str] = None,
-    skills: Optional[list[str]] = None,
-    role: Optional[str] = None,
-    invite_code: Optional[str] = None,
+    action: Annotated[
+        str,
+        Field(
+            description=(
+                "Collaboration action: list_team_members, discover_agents, send_message, "
+                "get_messages, update_my_card, or join_team."
+            )
+        ),
+    ],
+    recipient_id: Annotated[Optional[str], Field(description="Recipient member UUID used by send_message action.")] = None,
+    body: Annotated[Optional[str], Field(description="Message body or profile description depending on action.")] = None,
+    message_type: Annotated[str, Field(description="Message type label for send_message action (for example: info).")] = "info",
+    subject: Annotated[Optional[str], Field(description="Optional message subject for send_message action.")] = None,
+    include_read: Annotated[bool, Field(description="When true, include previously read messages in get_messages action.")] = False,
+    mark_as_read: Annotated[bool, Field(description="When true, mark fetched messages as read in get_messages action.")] = False,
+    description: Annotated[Optional[str], Field(description="Agent/member profile description for update_my_card action.")] = None,
+    skills: Annotated[Optional[list[str]], Field(description="Skill tags to publish in update_my_card action.")] = None,
+    role: Annotated[Optional[str], Field(description="Role string to set in update_my_card action.")] = None,
+    invite_code: Annotated[Optional[str], Field(description="Team invite code used by join_team action.")] = None,
 ) -> str:
     """Actions: list_team_members, discover_agents, send_message, get_messages, update_my_card, join_team."""
     try:
