@@ -12,13 +12,25 @@ async def collaboration_action_list_team_members(*, api_get: Any, **_: Any) -> s
     return "\n".join(lines)
 
 
-async def collaboration_action_discover_agents(*, api_get: Any, **_: Any) -> str:
+async def collaboration_action_discover_agents(*, api_get: Any, format_timestamp: Any, **_: Any) -> str:
+    import time as _time
     agents = await api_get("/api/a2a/agents")
     if not agents:
         return "No agents found on your team."
+
+    # Fetch presence; degrade gracefully if unavailable
+    online_ids: set[str] = set()
+    try:
+        presence_data = await api_get("/api/stream/presence")
+        online_ids = {p["user_id"] for p in presence_data.get("online", [])}
+    except Exception:
+        pass
+
     lines = [f"# Agents on your team ({len(agents)})"]
     for agent in agents:
-        lines.append(f"\n## {agent['name']} (ID: {agent['id']})")
+        is_online = agent["id"] in online_ids
+        status_str = "online" if is_online else "offline"
+        lines.append(f"\n## {agent['name']} [{status_str}] (ID: {agent['id']})")
         lines.append(f"  Email: {agent['email']}")
         if agent.get("role"):
             lines.append(f"  Role: {agent['role']}")
