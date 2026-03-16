@@ -20,16 +20,24 @@ async def collaboration_action_discover_agents(*, api_get: Any, format_timestamp
 
     # Fetch presence; degrade gracefully if unavailable
     online_ids: set[str] = set()
+    last_seen_map: dict[str, str] = {}
     try:
         presence_data = await api_get("/api/stream/presence")
         online_ids = {p["user_id"] for p in presence_data.get("online", [])}
+        for entry in presence_data.get("last_seen", []):
+            if entry.get("last_seen"):
+                last_seen_map[entry["user_id"]] = format_timestamp(entry["last_seen"])
     except Exception:
         pass
 
     lines = [f"# Agents on your team ({len(agents)})"]
     for agent in agents:
         is_online = agent["id"] in online_ids
-        status_str = "online" if is_online else "offline"
+        if is_online:
+            status_str = "online"
+        else:
+            ls = last_seen_map.get(agent["id"])
+            status_str = f"offline, last seen {ls}" if ls else "offline"
         lines.append(f"\n## {agent['name']} [{status_str}] (ID: {agent['id']})")
         lines.append(f"  Email: {agent['email']}")
         if agent.get("role"):
