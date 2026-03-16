@@ -598,7 +598,7 @@ async def tasks(
     items: Annotated[Optional[list[dict[str, Any]]], Field(description="Task payload list used by batch_create action.")] = None,
     updates: Annotated[Optional[list[TaskBatchUpdateItem]], Field(description="Structured update payload list used by batch_update action.")] = None,
 ) -> str:
-    """Actions: list, create, update, delete, context, batch_create, batch_update, add_dependency, remove_dependency, list_dependencies, add_comment, list_comments, list_milestones, get_milestone, create_milestone, update_milestone, delete_milestone, reorder_milestones."""
+    """Actions: list, create, update, delete, context, get_my_tasks, batch_create, batch_update, add_dependency, remove_dependency, list_dependencies, add_comment, list_comments, list_milestones, get_milestone, create_milestone, update_milestone, delete_milestone, reorder_milestones."""
     try:
         action_args: dict[str, Any] = {
             "api_get": _api_get,

@@ -433,6 +433,126 @@ async def tasks_action_list_comments(
     return "\n".join(lines)
 
 
+async def tasks_action_get_my_tasks(
+    *,
+    api_get: Any,
+    task_to_dict: Any,
+    json_envelope: Any,
+    validate_response_mode: Any,
+    project_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: Optional[int] = None,
+    response_mode: str = "human",
+    **_: Any,
+) -> str:
+    """Return tasks eligible for the calling agent to self-pick.
+
+    Resolves the caller's identity, finds stages where the caller is claimed (or
+    all open stages if none are claimed for the caller), and returns unassigned
+    tasks in entry statuses — sorted by priority then sort_order.
+    """
+    if not project_id:
+        return "project_id is required for get_my_tasks"
+
+    mode_error = validate_response_mode(response_mode)
+    if mode_error:
+        return mode_error
+
+    # Resolve caller identity
+    me = await api_get("/api/auth/me")
+    caller_id = me["id"]
+
+    # Fetch workflow to discover eligible stages
+    workflow = await api_get(f"/api/projects/{project_id}/workflow")
+    stages = workflow.get("stages", [])
+
+    eligible_stages = []
+    for stage in stages:
+        claimed_agents = stage.get("claimed_agents", [])
+        if not claimed_agents or any(a["id"] == caller_id for a in claimed_agents):
+            eligible_stages.append(stage)
+
+    if not eligible_stages:
+        return "No eligible stages found for this agent in the project workflow."
+
+    # Collect target statuses (entry status of each eligible stage, or all stage statuses)
+    target_statuses: list[str] = []
+    seen_statuses: set[str] = set()
+    for stage in eligible_stages:
+        for st in stage.get("statuses", []):
+            name = st["name"]
+            if name in seen_statuses:
+                continue
+            if status is not None and name != status:
+                continue
+            seen_statuses.add(name)
+            target_statuses.append(name)
+
+    if not target_statuses:
+        return f"Status '{status}' is not in any eligible stage for this agent."
+
+    effective_limit = limit or 10
+    per_status_limit = max(effective_limit * 2, 20)
+
+    all_tasks: list[dict] = []
+    seen_ids: set[str] = set()
+    for status_name in target_statuses:
+        page = await api_get(
+            f"/api/projects/{project_id}/tasks",
+            params={"status": status_name, "limit": per_status_limit},
+        )
+        for task in (page or {}).get("items", []):
+            task_id = task.get("id")
+            if task_id in seen_ids:
+                continue
+            assignee = task.get("assignee_id")
+            if assignee is None or assignee == caller_id:
+                seen_ids.add(task_id)
+                all_tasks.append(task)
+
+    # Sort: priority (urgent > high > medium > low > none), then sort_order
+    _priority_rank = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
+    all_tasks.sort(key=lambda t: (
+        _priority_rank.get(t.get("priority") or "", 4),
+        t.get("sort_order") or 999999,
+    ))
+    all_tasks = all_tasks[:effective_limit]
+
+    if not all_tasks:
+        return "No eligible tasks found for self-pick."
+
+    eligible_stage_names = [s["name"] for s in eligible_stages]
+    header = (
+        f"Eligible tasks for agent {caller_id} "
+        f"(stages: {', '.join(eligible_stage_names)}, "
+        f"statuses: {', '.join(target_statuses)}):"
+    )
+    human_lines = [header]
+    for t in all_tasks:
+        priority_tag = f" [{t['priority']}]" if t.get("priority") else ""
+        assignee_tag = " [assigned to you]" if t.get("assignee_id") == caller_id else ""
+        human_lines.append(
+            f"- [{t['status']}]{priority_tag}{assignee_tag} {t['title']} (ID: {t['id']})"
+        )
+    human_text = "\n".join(human_lines)
+
+    envelope = json_envelope(
+        tool="tasks.get_my_tasks",
+        query={"project_id": project_id, "status": status, "limit": effective_limit},
+        data={
+            "caller_id": caller_id,
+            "eligible_stages": eligible_stage_names,
+            "target_statuses": target_statuses,
+            "tasks": [task_to_dict(t) for t in all_tasks],
+        },
+    )
+    if response_mode == "json":
+        return envelope
+    if response_mode == "both":
+        return f"{human_text}\n\n---\n{envelope}"
+    return human_text
+
+
 TASKS_CORE_ACTION_HANDLERS = {
     "list": tasks_action_list,
     "create": tasks_action_create,
@@ -441,6 +561,7 @@ TASKS_CORE_ACTION_HANDLERS = {
     "context": tasks_action_context,
     "batch_create": tasks_action_batch_create,
     "batch_update": tasks_action_batch_update,
+    "get_my_tasks": tasks_action_get_my_tasks,
 }
 
 
