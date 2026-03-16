@@ -36,7 +36,19 @@ _transport_security = TransportSecuritySettings(
 
 mcp_server = FastMCP("ProjectBrain", stateless_http=True, transport_security=_transport_security)
 
-VALID_TASK_STATUSES = {"todo", "in_progress", "blocked", "done", "cancelled"}
+_FALLBACK_TASK_STATUSES = {"todo", "in_progress", "blocked", "done", "cancelled"}
+
+
+async def _get_valid_task_statuses(project_id: Optional[str]) -> set[str]:
+    """Fetch workflow statuses for a project; fall back to defaults if unavailable."""
+    if not project_id:
+        return _FALLBACK_TASK_STATUSES
+    try:
+        workflow = await _api_get(f"/api/projects/{project_id}/workflow")
+        statuses = {s["name"] for s in workflow.get("statuses", [])}
+        return statuses if statuses else _FALLBACK_TASK_STATUSES
+    except Exception:
+        return _FALLBACK_TASK_STATUSES
 VALID_MILESTONE_STATUSES = {"planned", "in_progress", "completed", "cancelled"}
 VALID_RESPONSE_MODES = {"human", "json", "both"}
 DEFAULT_TOOL_ANNOTATION_HINTS = {
@@ -590,7 +602,7 @@ async def tasks(
             "task_to_dict": _task_to_dict,
             "milestone_to_dict": _milestone_to_dict,
             "format_timestamp": _format_timestamp,
-            "valid_task_statuses": VALID_TASK_STATUSES,
+            "valid_task_statuses": await _get_valid_task_statuses(project_id),
             "valid_milestone_statuses": VALID_MILESTONE_STATUSES,
             "project_id": project_id,
             "task_id": task_id,
