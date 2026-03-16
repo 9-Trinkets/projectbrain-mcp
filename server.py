@@ -39,12 +39,22 @@ mcp_server = FastMCP("ProjectBrain", stateless_http=True, transport_security=_tr
 _FALLBACK_TASK_STATUSES = {"todo", "in_progress", "blocked", "done", "cancelled"}
 
 
-async def _get_valid_task_statuses(project_id: Optional[str]) -> set[str]:
-    """Fetch workflow statuses for a project; fall back to defaults if unavailable."""
-    if not project_id:
+async def _get_valid_task_statuses(project_id: Optional[str], task_id: Optional[str] = None) -> set[str]:
+    """Fetch workflow statuses for a project; fall back to defaults if unavailable.
+
+    If project_id is absent but task_id is provided, look up the task to resolve project_id.
+    """
+    resolved_project_id = project_id
+    if not resolved_project_id and task_id:
+        try:
+            task = await _api_get(f"/api/tasks/{task_id}")
+            resolved_project_id = task.get("project_id")
+        except Exception:
+            pass
+    if not resolved_project_id:
         return _FALLBACK_TASK_STATUSES
     try:
-        workflow = await _api_get(f"/api/projects/{project_id}/workflow")
+        workflow = await _api_get(f"/api/projects/{resolved_project_id}/workflow")
         statuses = {s["name"] for s in workflow.get("statuses", [])}
         return statuses if statuses else _FALLBACK_TASK_STATUSES
     except Exception:
@@ -602,7 +612,7 @@ async def tasks(
             "task_to_dict": _task_to_dict,
             "milestone_to_dict": _milestone_to_dict,
             "format_timestamp": _format_timestamp,
-            "valid_task_statuses": await _get_valid_task_statuses(project_id),
+            "valid_task_statuses": await _get_valid_task_statuses(project_id, task_id),
             "valid_milestone_statuses": VALID_MILESTONE_STATUSES,
             "project_id": project_id,
             "task_id": task_id,
