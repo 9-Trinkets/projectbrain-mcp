@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Annotated, Any, Optional
 
 import httpx
+from actions.file_actions import FILE_ACTION_HANDLERS
 from actions.collab_actions import COLLABORATION_ACTION_HANDLERS as COLLAB_MODULE_HANDLERS
 from actions.context_actions import CONTEXT_ACTION_HANDLERS as CONTEXT_MODULE_HANDLERS
 from actions.knowledge_actions import (
@@ -321,7 +322,7 @@ async def server_overview_resource() -> str:
             "resources/templates/list",
             "prompts/list",
         ],
-        "tools": ["context", "projects", "tasks", "knowledge", "collaboration"],
+        "tools": ["context", "projects", "tasks", "knowledge", "files", "collaboration"],
         "notes": (
             "Unauthenticated discovery is enabled for list/initialize methods only. "
             "Tool execution and data access require a bearer token."
@@ -717,6 +718,59 @@ async def knowledge(
             q=q,
             cursor=cursor,
             limit=limit,
+        )
+    except Exception as exc:
+        return f"Error: {exc}"
+
+
+@mcp_server.tool(
+    description="Versioned file operations: documents, drafts, specs, reports, and any typed content linked to project entities",
+    annotations=_tool_annotations(
+        title="Files",
+        read_only=False,
+        destructive=True,
+        idempotent=False,
+        open_world=False,
+    ),
+    meta=_tool_meta(
+        risk_level="medium",
+        latency_class="network",
+        cost_class="low",
+        auth_required=True,
+        deprecated=False,
+        read_only=False,
+        idempotent=False,
+    ),
+)
+async def files(
+    action: Annotated[str, Field(description="File action: list, get, create, add_version, list_versions, or delete.")],
+    project_id: Annotated[Optional[str], Field(description="Project UUID for list and create actions.")] = None,
+    file_id: Annotated[Optional[str], Field(description="File UUID for get, add_version, list_versions, and delete actions.")] = None,
+    file_type: Annotated[Optional[str], Field(description="File type: draft, spec, report, review, or code. Used by create and list actions.")] = None,
+    title: Annotated[Optional[str], Field(description="File title for create action.")] = None,
+    body: Annotated[Optional[str], Field(description="File content body for create and add_version actions.")] = None,
+    entity_type: Annotated[Optional[str], Field(description="Polymorphic entity type (e.g. task, milestone) to link the file to.")] = None,
+    entity_id: Annotated[Optional[str], Field(description="UUID of the linked entity (must pair with entity_type).")] = None,
+    version: Annotated[Optional[int], Field(description="Specific version number to retrieve in get action; omit for latest.")] = None,
+) -> str:
+    """Actions: list, get, create, add_version, list_versions, delete."""
+    try:
+        handler = FILE_ACTION_HANDLERS.get(action)
+        if handler is None:
+            return "Error: action must be one of: list, get, create, add_version, list_versions, delete."
+        return await handler(
+            api_get=_api_get,
+            api_post=_api_post,
+            api_delete=_api_delete,
+            require_fields=_require_fields,
+            project_id=project_id,
+            file_id=file_id,
+            file_type=file_type,
+            title=title,
+            body=body,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            version=version,
         )
     except Exception as exc:
         return f"Error: {exc}"
