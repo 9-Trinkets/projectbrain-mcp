@@ -213,7 +213,7 @@ async def lifespan(_app: FastAPI):
         yield
 
 
-app = FastAPI(title="Project Brain MCP", lifespan=lifespan, redirect_slashes=False)
+app = FastAPI(title="ProjectBrain MCP", lifespan=lifespan, redirect_slashes=False)
 
 
 @app.get("/.well-known/oauth-protected-resource", include_in_schema=False)

@@ -305,7 +305,7 @@ def _json_envelope(tool: str, data: dict, query: Optional[dict] = None) -> str:
 @mcp_server.resource(
     "projectbrain://server/overview",
     name="server_overview",
-    title="Project Brain MCP Server Overview",
+    title="ProjectBrain MCP Server Overview",
     description="High-level capabilities and discovery metadata for this MCP server.",
     mime_type="application/json",
 )
@@ -334,8 +334,8 @@ async def server_overview_resource() -> str:
 @mcp_server.resource(
     "projectbrain://playbooks/default-workflow",
     name="default_workflow_playbook",
-    title="Project Brain Default Workflow",
-    description="Recommended baseline workflow for navigating and executing work in Project Brain.",
+    title="ProjectBrain Default Workflow",
+    description="Recommended baseline workflow for navigating and executing work in ProjectBrain.",
     mime_type="text/plain",
 )
 async def default_workflow_playbook_resource() -> str:
@@ -351,12 +351,12 @@ async def default_workflow_playbook_resource() -> str:
 
 @mcp_server.prompt(
     name="project_brain_session_bootstrap",
-    title="Project Brain Session Bootstrap",
+    title="ProjectBrain Session Bootstrap",
     description="Prompt template for starting work in a specific project with the context and task tools.",
 )
 def project_brain_session_bootstrap_prompt(project_id: str) -> str:
     return (
-        "Start a focused Project Brain session for this project.\n"
+        "Start a focused ProjectBrain session for this project.\n"
         f"- project_id: {project_id}\n"
         "1) Call context(action=\"session\", project_id=project_id).\n"
         "2) Summarize active priorities and blockers.\n"
@@ -367,13 +367,13 @@ def project_brain_session_bootstrap_prompt(project_id: str) -> str:
 
 @mcp_server.prompt(
     name="project_brain_task_execution",
-    title="Project Brain Task Execution",
+    title="ProjectBrain Task Execution",
     description="Prompt template for planning and executing a task while keeping lifecycle state accurate.",
 )
 def project_brain_task_execution_prompt(task_id: str, project_id: Optional[str] = None) -> str:
     project_line = f"- project_id: {project_id}\n" if project_id else ""
     return (
-        "Execute this Project Brain task methodically.\n"
+        "Execute this ProjectBrain task methodically.\n"
         f"- task_id: {task_id}\n"
         f"{project_line}"
         "1) Load task context with tasks(action=\"context\", task_id=task_id).\n"

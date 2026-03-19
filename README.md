@@ -1,5 +1,5 @@
-# Project Brain MCP
-Project Brain MCP is a Model Context Protocol (MCP) server for project planning and execution workflows.
+# ProjectBrain MCP
+ProjectBrain MCP is a Model Context Protocol (MCP) server for project planning and execution workflows.
 It exposes tools for tasks, decisions, facts, milestones, comments, and team messaging through a Streamable HTTP endpoint.
 
 ## What it does
@@ -7,7 +7,7 @@ It exposes tools for tasks, decisions, facts, milestones, comments, and team mes
 - Allows unauthenticated MCP discovery requests for `initialize`, `notifications/initialized`, `ping`, `tools/list`, `resources/list`, `resources/templates/list`, and `prompts/list`
 - Authenticates bearer tokens (JWT or API key) for all tool execution and data access
 - Provides MCP OAuth metadata endpoints
-- Executes tool actions against the Project Brain API
+- Executes tool actions against the ProjectBrain API
 
 ## Service endpoints
 - `GET /health`
@@ -19,7 +19,7 @@ It exposes tools for tasks, decisions, facts, milestones, comments, and team mes
 Set these environment variables:
 
 - `SERVER_URL` (default: `http://localhost:8000`)  
-  Base URL of the Project Brain API.
+  Base URL of the ProjectBrain API.
 - `MCP_SERVER_URL` (default: same as `SERVER_URL`)  
   Public base URL used in OAuth resource metadata.
 - `JWT_SECRET_KEY`  
