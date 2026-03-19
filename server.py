@@ -45,7 +45,7 @@ async def _get_valid_task_statuses(project_id: Optional[str], task_id: Optional[
 
     If project_id is absent but task_id is provided, look up the task to resolve project_id.
     """
-    resolved_project_id = project_id
+    resolved_project_id = await _resolve_project_id(project_id) if project_id else None
     if not resolved_project_id and task_id:
         try:
             task = await _api_get(f"/api/tasks/{task_id}")
@@ -60,6 +60,39 @@ async def _get_valid_task_statuses(project_id: Optional[str], task_id: Optional[
         return statuses if statuses else _FALLBACK_TASK_STATUSES
     except Exception:
         return _FALLBACK_TASK_STATUSES
+
+
+async def _resolve_project_id(value: str) -> str:
+    """Resolve a project ID (full UUID, short prefix, or name) to a full UUID."""
+    if not value:
+        return value
+    import re
+    # Full UUID — return as-is
+    if re.match(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$", value, re.I):
+        return value
+
+    # Otherwise, fetch projects and search
+    projects = await _api_get("/api/projects/")
+
+    # Short hex prefix (e.g. "a84c4871")
+    if re.match(r"^[0-9a-f]+$", value, re.I) and len(value) >= 4:
+        prefix = value.lower()
+        matches = [p for p in projects if p["id"].lower().startswith(prefix)]
+        if len(matches) == 1:
+            return matches[0]["id"]
+        if len(matches) > 1:
+            names = ", ".join(f"{m['name']} ({m['id'][:8]})" for m in matches)
+            raise ValueError(f"Ambiguous project ID prefix '{value}' — matches: {names}.")
+
+    # Name search
+    needle = value.lower()
+    matches = [p for p in projects if needle in p["name"].lower()]
+    if len(matches) == 1:
+        return matches[0]["id"]
+    if len(matches) == 0:
+        raise ValueError(f"No project matching '{value}'.")
+    names = ", ".join(m["name"] for m in matches)
+    raise ValueError(f"Ambiguous project name '{value}' — matches: {names}. Use the full UUID.")
 VALID_MILESTONE_STATUSES = {"planned", "in_progress", "completed", "cancelled"}
 VALID_RESPONSE_MODES = {"human", "json", "both"}
 DEFAULT_TOOL_ANNOTATION_HINTS = {
@@ -416,13 +449,14 @@ async def context(
         handler = CONTEXT_MODULE_HANDLERS.get(action)
         if handler is None:
             return "Error: action must be one of: session, summary, changes, search, shortlist."
+        resolved_project_id = await _resolve_project_id(project_id) if project_id else None
         return await handler(
             api_get=_api_get,
             require_fields=_require_fields,
             preview=_preview,
             format_timestamp=_format_timestamp,
             request_timeout_seconds=settings.request_timeout_seconds,
-            project_id=project_id,
+            project_id=resolved_project_id,
             since=since,
             q=q,
             limit=limit,
@@ -517,6 +551,7 @@ async def projects(
 ) -> str:
     """Actions: list, get, create, update, get_workflow, add_workflow_stage, update_workflow_stage, delete_workflow_stage, reorder_workflow_stages."""
     try:
+        resolved_project_id = await _resolve_project_id(project_id) if project_id else None
         action_args: dict[str, Any] = {
             "api_get": _api_get,
             "api_post": _api_post,
@@ -525,7 +560,7 @@ async def projects(
             "require_fields": _require_fields,
             "validate_response_mode": _validate_response_mode,
             "json_envelope": _json_envelope,
-            "project_id": project_id,
+            "project_id": resolved_project_id,
             "name": name,
             "description": description,
             "stage_id": stage_id,
@@ -601,6 +636,7 @@ async def tasks(
 ) -> str:
     """Actions: list, create, update, delete, context, get_my_tasks, batch_create, batch_update, add_dependency, remove_dependency, list_dependencies, add_comment, list_comments, list_milestones, get_milestone, create_milestone, update_milestone, delete_milestone, reorder_milestones."""
     try:
+        resolved_project_id = await _resolve_project_id(project_id) if project_id else None
         action_args: dict[str, Any] = {
             "api_get": _api_get,
             "api_post": _api_post,
@@ -613,9 +649,9 @@ async def tasks(
             "task_to_dict": _task_to_dict,
             "milestone_to_dict": _milestone_to_dict,
             "format_timestamp": _format_timestamp,
-            "valid_task_statuses": await _get_valid_task_statuses(project_id, task_id),
+            "valid_task_statuses": await _get_valid_task_statuses(resolved_project_id, task_id),
             "valid_milestone_statuses": VALID_MILESTONE_STATUSES,
-            "project_id": project_id,
+            "project_id": resolved_project_id,
             "task_id": task_id,
             "title": title,
             "description": description,
@@ -699,6 +735,7 @@ async def knowledge(
         handler = KNOWLEDGE_MODULE_HANDLERS.get(action)
         if handler is None:
             return "Error: action must be one of: list, get, create, update, delete."
+        resolved_project_id = await _resolve_project_id(project_id) if project_id else None
         return await handler(
             api_get=_api_get,
             api_post=_api_post,
@@ -707,7 +744,7 @@ async def knowledge(
             require_fields=_require_fields,
             preview=_preview,
             entity=normalized_entity,
-            project_id=project_id,
+            project_id=resolved_project_id,
             item_id=item_id,
             title=title,
             body=body,
@@ -758,12 +795,13 @@ async def files(
         handler = FILE_ACTION_HANDLERS.get(action)
         if handler is None:
             return "Error: action must be one of: list, get, create, add_version, list_versions, delete."
+        resolved_project_id = await _resolve_project_id(project_id) if project_id else None
         return await handler(
             api_get=_api_get,
             api_post=_api_post,
             api_delete=_api_delete,
             require_fields=_require_fields,
-            project_id=project_id,
+            project_id=resolved_project_id,
             file_id=file_id,
             file_type=file_type,
             title=title,
@@ -818,11 +856,12 @@ async def collaboration(
     description: Annotated[Optional[str], Field(description="Agent/member profile description for update_my_card action.")] = None,
     invite_code: Annotated[Optional[str], Field(description="Team invite code used by join_team action.")] = None,
 ) -> str:
-    """Actions: list_team_members, discover_agents, send_message, get_messages, update_my_card, join_team."""
+    """Actions: list_team_members, discover_agents, get_agent_activity, send_message, get_messages, update_my_card, join_team."""
     try:
         handler = COLLAB_MODULE_HANDLERS.get(action)
         if handler is None:
-            return "Error: action must be one of: list_team_members, discover_agents, send_message, get_messages, update_my_card, join_team."
+            return "Error: action must be one of: list_team_members, discover_agents, get_agent_activity, send_message, get_messages, update_my_card, join_team."
+        resolved_project_id = await _resolve_project_id(project_id) if project_id else None
         return await handler(
             api_get=_api_get,
             api_post=_api_post,
@@ -831,7 +870,7 @@ async def collaboration(
             preview=_preview,
             format_timestamp=_format_timestamp,
             agent_id=agent_id,
-            project_id=project_id,
+            project_id=resolved_project_id,
             since=since,
             limit=limit,
             recipient_id=recipient_id,
