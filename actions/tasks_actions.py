@@ -129,18 +129,18 @@ async def tasks_action_create(
     error = require_fields("create", project_id=project_id, title=title)
     if error:
         return error
+    if status and status not in valid_task_statuses:
+        return f"Error: Invalid status. Must be one of: {sorted(valid_task_statuses)}"
     payload: dict[str, Any] = {
         "title": title,
         "description": description or "",
-        "status": status or "todo",
+        "status": status,  # None → API resolves to project's first workflow stage
         "priority": priority,
         "estimate": estimate,
         "sort_order": sort_order,
         "milestone_id": None if milestone_id == "" else milestone_id,
         "assignee_id": None if assignee_id == "" else assignee_id,
     }
-    if payload["status"] not in valid_task_statuses:
-        return f"Error: Invalid status. Must be one of: {sorted(valid_task_statuses)}"
     payload = {key: value for key, value in payload.items() if value is not None}
     item = await api_post(f"/api/projects/{project_id}/tasks", body=payload)
     return f"Task created: {item['title']} [{item['status']}] (ID: {item['id']})"
@@ -261,14 +261,14 @@ async def tasks_action_batch_create(
         if not item_title:
             errors.append(f"Item {index}: missing required field 'title'")
             continue
-        item_status = item.get("status", "todo")
-        if item_status not in valid_task_statuses:
+        item_status = item.get("status")
+        if item_status and item_status not in valid_task_statuses:
             errors.append(f"Item {index} ({item_title}): invalid status '{item_status}'")
             continue
         payload = {
             "title": item_title,
             "description": item.get("description", ""),
-            "status": item_status,
+            "status": item_status,  # None → API resolves to project's first workflow stage
             "priority": item.get("priority"),
             "estimate": item.get("estimate"),
             "sort_order": item.get("sort_order"),
