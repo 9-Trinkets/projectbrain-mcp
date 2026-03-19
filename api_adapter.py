@@ -108,7 +108,24 @@ class MCPAuthMiddleware:
         except jwt.InvalidTokenError:
             return False
 
+    async def _introspect_token(self, token: str) -> bool:
+        """Validate a token by calling the API's /api/me endpoint.
+
+        Used as a fallback when local JWT verification fails (e.g. JWT_SECRET_KEY
+        mismatch between API and MCP services).  If the API accepts the token,
+        we trust it — no local secret needed.
+        """
+        import httpx
+        url = f"{SERVER_URL.rstrip('/')}/api/me"
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+                return resp.status_code == 200
+        except Exception:
+            return False
+
     def _validate_token(self, token: str | None) -> bool:
+        """Fast-path synchronous check: pb_ keys and locally-verifiable JWTs."""
         if not token:
             return False
         return token.startswith("pb_") or self._verify_jwt(token)
@@ -170,7 +187,16 @@ class MCPAuthMiddleware:
             auth_header = self._parse_auth_header(scope)
             token = self._parse_bearer_token(auth_header)
 
-            if self._validate_token(token):
+            # Fast path: pb_ keys and locally-verifiable JWTs.
+            token_valid = self._validate_token(token)
+
+            # Slow path: JWT that failed local verification — ask the API.
+            # This handles JWT_SECRET_KEY mismatches between the API and MCP
+            # services without requiring manual key synchronisation.
+            if not token_valid and token and not token.startswith("pb_"):
+                token_valid = await self._introspect_token(token)
+
+            if token_valid:
                 reset_token = current_auth_token.set(token)
                 try:
                     await self.app(scope, receive, send)
