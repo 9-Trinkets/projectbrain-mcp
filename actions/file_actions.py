@@ -80,7 +80,8 @@ async def file_action_create(
         payload["entity_type"] = entity_type
     if entity_id is not None:
         payload["entity_id"] = entity_id
-    file = await api_post(f"/api/projects/{project_id}/files", body=payload)
+    # project_id is already resolved at the tool entry point in mcp/server.py
+    file = await api_post(f"/api/projects/{str(project_id)}/files", body=payload)
     return f"File created: [{file['type']}] {file['title']} v{file.get('latest_version', 1)} (ID: {file['id']})"
 
 
