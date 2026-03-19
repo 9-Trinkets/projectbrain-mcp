@@ -800,11 +800,15 @@ async def collaboration(
         str,
         Field(
             description=(
-                "Collaboration action: list_team_members, discover_agents, send_message, "
-                "get_messages, update_my_card, or join_team."
+                "Collaboration action: list_team_members, discover_agents, get_agent_activity, "
+                "send_message, get_messages, update_my_card, or join_team."
             )
         ),
     ],
+    agent_id: Annotated[Optional[str], Field(description="Target agent UUID for get_agent_activity. Defaults to current user if omitted.")] = None,
+    project_id: Annotated[Optional[str], Field(description="Optional project UUID to filter activity.")] = None,
+    since: Annotated[Optional[str], Field(description="ISO 8601 timestamp to filter activity.")] = None,
+    limit: Annotated[int, Field(description="Maximum activity items to return.")] = 20,
     recipient_id: Annotated[Optional[str], Field(description="Recipient member UUID used by send_message action.")] = None,
     body: Annotated[Optional[str], Field(description="Message body or profile description depending on action.")] = None,
     message_type: Annotated[str, Field(description="Message type label for send_message action (for example: info).")] = "info",
@@ -826,6 +830,10 @@ async def collaboration(
             require_fields=_require_fields,
             preview=_preview,
             format_timestamp=_format_timestamp,
+            agent_id=agent_id,
+            project_id=project_id,
+            since=since,
+            limit=limit,
             recipient_id=recipient_id,
             body=body,
             message_type=message_type,

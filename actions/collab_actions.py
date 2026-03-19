@@ -137,9 +137,47 @@ async def collaboration_action_join_team(
     return f"Successfully joined team (ID: {member['team_id']}). Re-authenticate to refresh team claims."
 
 
+async def collaboration_action_get_agent_activity(
+    *,
+    api_get: Any,
+    format_timestamp: Any,
+    agent_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    since: Optional[str] = None,
+    limit: int = 20,
+    **_: Any,
+) -> str:
+    params = {"limit": limit}
+    if agent_id:
+        params["actor_id"] = agent_id
+    if project_id:
+        params["project_id"] = project_id
+    if since:
+        params["since"] = since
+
+    res = await api_get("/api/activity", params=params)
+    items = res.get("items", [])
+
+    if not items:
+        return "No recent activity found for the specified criteria."
+
+    actor_name = items[0].get("actor_name") or agent_id or "Agent"
+    lines = [f"# Recent Activity: {actor_name}"]
+    for item in items:
+        ts = format_timestamp(item.get("created_at"))
+        entity = f"{item['entity_type']} '{item['entity_title']}'" if item.get("entity_title") else item["entity_type"]
+        lines.append(f"  - [{ts}] {item['action']} on {entity}")
+
+    if res.get("has_more"):
+        lines.append("\n(More activity available. Use a newer 'since' or pagination.)")
+
+    return "\n".join(lines)
+
+
 COLLABORATION_ACTION_HANDLERS = {
     "list_team_members": collaboration_action_list_team_members,
     "discover_agents": collaboration_action_discover_agents,
+    "get_agent_activity": collaboration_action_get_agent_activity,
     "send_message": collaboration_action_send_message,
     "get_messages": collaboration_action_get_messages,
     "update_my_card": collaboration_action_update_my_card,
