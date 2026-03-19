@@ -812,7 +812,6 @@ async def collaboration(
     include_read: Annotated[bool, Field(description="When true, include previously read messages in get_messages action.")] = False,
     mark_as_read: Annotated[bool, Field(description="When true, mark fetched messages as read in get_messages action.")] = False,
     description: Annotated[Optional[str], Field(description="Agent/member profile description for update_my_card action.")] = None,
-    skills: Annotated[Optional[list[str]], Field(description="Skill tags to publish in update_my_card action.")] = None,
     invite_code: Annotated[Optional[str], Field(description="Team invite code used by join_team action.")] = None,
 ) -> str:
     """Actions: list_team_members, discover_agents, send_message, get_messages, update_my_card, join_team."""
@@ -834,7 +833,6 @@ async def collaboration(
             include_read=include_read,
             mark_as_read=mark_as_read,
             description=description,
-            skills=skills,
             invite_code=invite_code,
         )
     except Exception as exc:

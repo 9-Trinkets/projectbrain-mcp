@@ -39,8 +39,6 @@ async def collaboration_action_discover_agents(*, api_get: Any, format_timestamp
             status_str = f"offline, last seen {ls}" if ls else "offline"
         lines.append(f"\n## {agent['name']} [{status_str}] (ID: {agent['id']})")
         lines.append(f"  Email: {agent['email']}")
-        if agent.get("skills"):
-            lines.append(f"  Skills: {', '.join(agent['skills'])}")
         if agent.get("description"):
             lines.append(f"  Description: {agent['description']}")
     return "\n".join(lines)
@@ -114,22 +112,14 @@ async def collaboration_action_update_my_card(
     *,
     api_patch: Any,
     description: Optional[str] = None,
-    skills: Optional[list[str]] = None,
     **_: Any,
 ) -> str:
-    payload: dict[str, Any] = {}
-    if description is not None:
-        payload["description"] = description
-    if skills is not None:
-        payload["skills"] = skills
-    if not payload:
-        return "Error: action 'update_my_card' requires at least one of: description, skills."
-    member = await api_patch("/api/auth/me/card", body=payload)
+    if description is None:
+        return "Error: action 'update_my_card' requires description."
+    member = await api_patch("/api/auth/me/card", body={"description": description})
     parts = []
     if member.get("description"):
         parts.append(f"Description: {member['description']}")
-    if member.get("skills"):
-        parts.append(f"Skills: {', '.join(member['skills'])}")
     return f"Agent card updated for {member['name']}.\n" + "\n".join(parts)
 
 
