@@ -381,6 +381,37 @@ async def tasks_action_list_dependencies(
     return "\n".join(lines)
 
 
+def _strip_completion_signal(body: str) -> str:
+    """Remove a trailing JSON completion signal from a comment body.
+
+    Agents sometimes include the JSON signal block ({"action": ..., "comment": ...})
+    at the end of their MCP add_comment call.  Strip it so only the human-readable
+    prose is posted.
+    """
+    import json as _json
+    stripped = body.rstrip()
+    if not stripped.endswith("}"):
+        return body
+    # Walk backwards to find the opening brace of the last JSON object.
+    depth = 0
+    for i in range(len(stripped) - 1, -1, -1):
+        c = stripped[i]
+        if c == "}":
+            depth += 1
+        elif c == "{":
+            depth -= 1
+            if depth == 0:
+                candidate = stripped[i:]
+                try:
+                    parsed = _json.loads(candidate)
+                except ValueError:
+                    break
+                if isinstance(parsed, dict) and "action" in parsed:
+                    return stripped[:i].rstrip()
+                break
+    return body
+
+
 async def tasks_action_add_comment(
     *,
     api_get: Any,
@@ -393,6 +424,9 @@ async def tasks_action_add_comment(
     error = require_fields("add_comment", task_id=task_id, comment_body=comment_body)
     if error:
         return error
+    comment_body = _strip_completion_signal(comment_body)
+    if not comment_body:
+        return "Error: comment body is empty after stripping completion signal."
     task_title = ""
     try:
         task = await api_get(f"/api/tasks/{task_id}")
