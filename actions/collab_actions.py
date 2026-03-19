@@ -7,8 +7,7 @@ async def collaboration_action_list_team_members(*, api_get: Any, **_: Any) -> s
     members = await api_get("/api/teams/members")
     lines = [f"# Team Members ({len(members)})"]
     for member in members:
-        role_str = f" [{member['role']}]" if member.get("role") else ""
-        lines.append(f"  {member['user_type'].upper()} {member['name']}{role_str} <{member['email']}> (ID: {member['id']})")
+        lines.append(f"  {member['user_type'].upper()} {member['name']} <{member['email']}> (ID: {member['id']})")
     return "\n".join(lines)
 
 
@@ -40,8 +39,6 @@ async def collaboration_action_discover_agents(*, api_get: Any, format_timestamp
             status_str = f"offline, last seen {ls}" if ls else "offline"
         lines.append(f"\n## {agent['name']} [{status_str}] (ID: {agent['id']})")
         lines.append(f"  Email: {agent['email']}")
-        if agent.get("role"):
-            lines.append(f"  Role: {agent['role']}")
         if agent.get("skills"):
             lines.append(f"  Skills: {', '.join(agent['skills'])}")
         if agent.get("description"):
@@ -118,7 +115,6 @@ async def collaboration_action_update_my_card(
     api_patch: Any,
     description: Optional[str] = None,
     skills: Optional[list[str]] = None,
-    role: Optional[str] = None,
     **_: Any,
 ) -> str:
     payload: dict[str, Any] = {}
@@ -126,18 +122,14 @@ async def collaboration_action_update_my_card(
         payload["description"] = description
     if skills is not None:
         payload["skills"] = skills
-    if role is not None:
-        payload["role"] = role
     if not payload:
-        return "Error: action 'update_my_card' requires at least one of: description, skills, role."
+        return "Error: action 'update_my_card' requires at least one of: description, skills."
     member = await api_patch("/api/auth/me/card", body=payload)
     parts = []
     if member.get("description"):
         parts.append(f"Description: {member['description']}")
     if member.get("skills"):
         parts.append(f"Skills: {', '.join(member['skills'])}")
-    if member.get("role"):
-        parts.append(f"Role: {member['role']}")
     return f"Agent card updated for {member['name']}.\n" + "\n".join(parts)
 
 
