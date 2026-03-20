@@ -201,8 +201,16 @@ class FactAdapter:
         return "\n".join(lines)
 
     async def get_item(self, *, ctx: KnowledgeContext, item_id: Optional[str]) -> str:
-        del ctx, item_id
-        return "Error: facts do not currently expose a dedicated GET by ID endpoint. Use action='list' with q filtering."
+        item = await ctx.api_get(f"/api/facts/{item_id}")
+        category_str = f"Category: {item['category']}\n" if item.get("category") else ""
+        body_str = f"\n{item['body']}" if item.get("body") else ""
+        return (
+            f"# Fact: {item['title']}\n"
+            f"ID: {item['id']}\n"
+            f"{category_str}"
+            f"Project: {item['project_id']}\n"
+            f"Created: {item['created_at']}{body_str}"
+        )
 
     async def create_item(
         self,
