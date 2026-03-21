@@ -11,7 +11,7 @@ import server
 # ---------------------------------------------------------------------------
 
 _CALLER_ID = "agent-abc"
-_PROJECT_ID = "proj-1"
+_PROJECT_ID = "00000000-0000-0000-0000-000000000000"
 
 _ME = {"id": _CALLER_ID, "name": "Agent ABC", "team_id": "team-1"}
 

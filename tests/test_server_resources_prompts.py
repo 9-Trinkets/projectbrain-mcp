@@ -27,7 +27,7 @@ async def test_read_server_overview_resource_returns_expected_payload():
     assert payload["transport"] == "streamable-http"
     assert "resources/list" in payload["discovery_methods"]
     assert "prompts/list" in payload["discovery_methods"]
-    assert payload["tools"] == ["context", "projects", "tasks", "knowledge", "collaboration"]
+    assert payload["tools"] == ["context", "projects", "tasks", "knowledge", "files", "collaboration"]
 
 
 @pytest.mark.asyncio
@@ -48,6 +48,6 @@ async def test_task_execution_prompt_renders_project_and_task_context():
 
     assert len(result.messages) == 1
     text = result.messages[0].content.text
-    assert "- task_id: task-123" in text
-    assert "- project_id: project-abc" in text
+    assert "And the task_id is task-123" in text
+    assert "And the project_id is project-abc" in text
     assert "tasks(action=\"context\", task_id=task_id)" in text

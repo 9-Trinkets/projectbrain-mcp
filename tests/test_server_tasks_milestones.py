@@ -9,12 +9,12 @@ import server
 @pytest.mark.asyncio
 async def test_list_milestones_human_response(monkeypatch):
     async def fake_get(path, *, params=None, client=None):
-        assert path == "/api/projects/project-1/milestones"
+        assert path == "/api/projects/00000000-0000-0000-0000-000000000000/milestones"
         assert params == {"q": "mcp"}
         return [
             {
                 "id": "milestone-1",
-                "project_id": "project-1",
+                "project_id": "00000000-0000-0000-0000-000000000000",
                 "title": "M13",
                 "description": "Milestone description",
                 "due_date": "2026-04-01",
@@ -26,7 +26,7 @@ async def test_list_milestones_human_response(monkeypatch):
         ]
 
     monkeypatch.setattr(server, "_api_get", fake_get)
-    result = await server.tasks(action="list_milestones", project_id="project-1", q="mcp")
+    result = await server.tasks(action="list_milestones", project_id="00000000-0000-0000-0000-000000000000", q="mcp")
     assert "Milestones (1)" in result
     assert "[planned] M13 (due 2026-04-01) (ID: milestone-1)" in result
 
@@ -34,12 +34,12 @@ async def test_list_milestones_human_response(monkeypatch):
 @pytest.mark.asyncio
 async def test_list_milestones_json_response(monkeypatch):
     async def fake_get(path, *, params=None, client=None):
-        assert path == "/api/projects/project-1/milestones"
+        assert path == "/api/projects/00000000-0000-0000-0000-000000000000/milestones"
         assert params == {"q": None}
         return [
             {
                 "id": "milestone-1",
-                "project_id": "project-1",
+                "project_id": "00000000-0000-0000-0000-000000000000",
                 "title": "M13",
                 "description": None,
                 "due_date": None,
@@ -51,7 +51,7 @@ async def test_list_milestones_json_response(monkeypatch):
         ]
 
     monkeypatch.setattr(server, "_api_get", fake_get)
-    raw = await server.tasks(action="list_milestones", project_id="project-1", response_mode="json")
+    raw = await server.tasks(action="list_milestones", project_id="00000000-0000-0000-0000-000000000000", response_mode="json")
     payload = json.loads(raw)
     assert payload["ok"] is True
     assert payload["meta"]["tool"] == "tasks.list_milestones"
@@ -62,7 +62,7 @@ async def test_list_milestones_json_response(monkeypatch):
 async def test_create_milestone_rejects_invalid_status():
     result = await server.tasks(
         action="create_milestone",
-        project_id="project-1",
+        project_id="00000000-0000-0000-0000-000000000000",
         title="M13",
         status="todo",
     )
@@ -79,7 +79,7 @@ async def test_create_milestone_calls_expected_endpoint(monkeypatch):
         called["body"] = body
         return {
             "id": "milestone-1",
-            "project_id": "project-1",
+            "project_id": "00000000-0000-0000-0000-000000000000",
             "title": body["title"],
             "description": body.get("description"),
             "due_date": body.get("due_date"),
@@ -92,13 +92,13 @@ async def test_create_milestone_calls_expected_endpoint(monkeypatch):
     monkeypatch.setattr(server, "_api_post", fake_post)
     result = await server.tasks(
         action="create_milestone",
-        project_id="project-1",
+        project_id="00000000-0000-0000-0000-000000000000",
         title="M13",
         description="MCP improvements",
         due_date="2026-04-01",
         status="planned",
     )
-    assert called["path"] == "/api/projects/project-1/milestones"
+    assert called["path"] == "/api/projects/00000000-0000-0000-0000-000000000000/milestones"
     assert called["body"] == {
         "title": "M13",
         "status": "planned",
@@ -116,7 +116,7 @@ async def test_update_milestone_requires_mutable_fields():
 
 @pytest.mark.asyncio
 async def test_reorder_milestones_requires_non_empty_ids():
-    result = await server.tasks(action="reorder_milestones", project_id="project-1", milestone_ids=[])
+    result = await server.tasks(action="reorder_milestones", project_id="00000000-0000-0000-0000-000000000000", milestone_ids=[])
     assert "requires non-empty milestone_ids" in result
 
 
@@ -132,9 +132,9 @@ async def test_reorder_milestones_calls_expected_endpoint(monkeypatch):
     monkeypatch.setattr(server, "_api_post", fake_post)
     result = await server.tasks(
         action="reorder_milestones",
-        project_id="project-1",
+        project_id="00000000-0000-0000-0000-000000000000",
         milestone_ids=["milestone-2", "milestone-1"],
     )
-    assert called["path"] == "/api/projects/project-1/milestones/reorder"
+    assert called["path"] == "/api/projects/00000000-0000-0000-0000-000000000000/milestones/reorder"
     assert called["body"] == {"milestone_ids": ["milestone-2", "milestone-1"]}
-    assert "Milestones reordered (2 IDs) for project project-1." == result
+    assert "Milestones reordered (2 IDs) for project 00000000-0000-0000-0000-000000000000." == result

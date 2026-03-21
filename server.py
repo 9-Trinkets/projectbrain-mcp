@@ -422,12 +422,13 @@ async def default_workflow_playbook_resource() -> str:
 )
 def project_brain_session_bootstrap_prompt(project_id: str) -> str:
     return (
-        "Start a focused ProjectBrain session for this project.\n"
-        f"- project_id: {project_id}\n"
-        "1) Call context(action=\"session\", project_id=project_id).\n"
-        "2) Summarize active priorities and blockers.\n"
-        "3) Call tasks(action=\"list\", project_id=project_id, status=\"todo\").\n"
-        "4) Recommend the top task to claim next with rationale."
+        "Given you are starting a focused ProjectBrain session\n"
+        f"And the target project_id is {project_id}\n"
+        "When you initialize the session\n"
+        "Then you must call context(action=\"session\", project_id=project_id)\n"
+        "And you must summarize active priorities and blockers\n"
+        "And you must call tasks(action=\"list\", project_id=project_id, status=\"todo\")\n"
+        "And you must output a recommendation for the top task to claim next, including your rationale"
     )
 
 
@@ -437,16 +438,17 @@ def project_brain_session_bootstrap_prompt(project_id: str) -> str:
     description="Prompt template for planning and executing a task while keeping lifecycle state accurate.",
 )
 def project_brain_task_execution_prompt(task_id: str, project_id: Optional[str] = None) -> str:
-    project_line = f"- project_id: {project_id}\n" if project_id else ""
+    project_line = f"And the project_id is {project_id}\n" if project_id else ""
     return (
-        "Execute this ProjectBrain task methodically.\n"
-        f"- task_id: {task_id}\n"
+        "Given you are executing a ProjectBrain task\n"
+        f"And the task_id is {task_id}\n"
         f"{project_line}"
-        "1) Load task context with tasks(action=\"context\", task_id=task_id).\n"
-        "2) Move task to in_progress if it is still todo.\n"
-        "3) Propose implementation steps and expected validation.\n"
-        "4) Add a concise progress comment.\n"
-        "5) Mark done only after verification."
+        "When you begin work on the task\n"
+        "Then you must load task context using tasks(action=\"context\", task_id=task_id)\n"
+        "And you must update the task status to \"in_progress\" if it is currently \"todo\"\n"
+        "And you must output proposed implementation steps and expected validation\n"
+        "And you must add a concise progress comment using the tasks tool\n"
+        "And you must mark the task as \"done\" ONLY after verifying the changes"
     )
 
 
