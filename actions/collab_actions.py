@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from envelope import parse as _parse_envelope
+
 
 async def collaboration_action_list_team_members(*, api_get: Any, **_: Any) -> str:
     members = await api_get("/api/teams/members")
@@ -64,11 +66,12 @@ async def collaboration_action_send_message(
     sender_name = message.get("sender_name") or "you"
     recipient_name = message.get("recipient_name") or recipient_id
     subject_line = f"Subject: {subject}\n" if subject else ""
+    env = _parse_envelope(message.get("body") or "")
     return (
         f"Message sent to {recipient_name} [{message['message_type']}].\n"
         f"From: {sender_name}\n"
         f"{subject_line}"
-        f"{preview(message['body'], 200)}"
+        f"{preview(env.display_text, 200)}"
     )
 
 
@@ -102,7 +105,11 @@ async def collaboration_action_get_messages(
         sender_name = item.get("sender_name") or item.get("sender_id")
         lines.append(f"\n## [{item['message_type']}]{subject_str}{read_str}")
         lines.append(f"  From: {sender_name}  |  ID: {item['id']}  |  {format_timestamp(item.get('created_at'))}")
-        lines.append(f"  {item['body']}")
+        env = _parse_envelope(item.get("body") or "")
+        lines.append(f"  {env.display_text}")
+        if env.preamble:
+            for label, tokens in env.preamble.items():
+                lines.append(f"  [{label}: {' '.join(tokens)}]")
     if mark_as_read and marked_count > 0:
         lines.append(f"\n(Marked {marked_count} message(s) as read)")
     return "\n".join(lines)

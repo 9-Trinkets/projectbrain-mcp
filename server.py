@@ -665,7 +665,7 @@ async def tasks(
     limit: Annotated[Optional[int], Field(description="Maximum number of results to return for list actions.")] = None,
     response_mode: Annotated[str, Field(description="Output format: human, json, or both (where supported).")] = "human",
     depends_on_id: Annotated[Optional[str], Field(description="Dependency task UUID used by add_dependency/remove_dependency actions.")] = None,
-    comment_body: Annotated[Optional[str], Field(description="Comment body text used by add_comment action.")] = None,
+    comment_body: Annotated[Optional[str], Field(description="Comment body text used by add_comment action. When handing off work to the next agent, prefer the envelope format over raw JSON: put structured directives as 'LABEL: token-list' lines above a '---' separator, and place the human-readable summary below it. Example: 'TASK: abc-123\\nOUTCOME: approved\\n---\\nDesign approved. Ready for implementation.' Plain text comments are always accepted.")] = None,
     items: Annotated[Optional[list[dict[str, Any]]], Field(description="Task payload list used by batch_create action.")] = None,
     updates: Annotated[Optional[list[TaskBatchUpdateItem]], Field(description="Structured update payload list used by batch_update action.")] = None,
 ) -> str:
@@ -883,7 +883,7 @@ async def collaboration(
     since: Annotated[Optional[str], Field(description="ISO 8601 timestamp to filter activity.")] = None,
     limit: Annotated[int, Field(description="Maximum activity items to return.")] = 20,
     recipient_id: Annotated[Optional[str], Field(description="Recipient member UUID used by send_message action.")] = None,
-    body: Annotated[Optional[str], Field(description="Message body or profile description depending on action.")] = None,
+    body: Annotated[Optional[str], Field(description="Message body or profile description depending on action. For send_message, prefer the envelope format over raw JSON: put structured directives as 'LABEL: token-list' lines above a '---' separator, and place the human-readable text below it. Example: 'TASK: abc-123\\nSTAGE: design\\n---\\nTask handed off to you in stage design.' Messages without '---' are accepted as plain body.")] = None,
     message_type: Annotated[str, Field(description="Message type label for send_message action (for example: info).")] = "info",
     subject: Annotated[Optional[str], Field(description="Optional message subject for send_message action.")] = None,
     include_read: Annotated[bool, Field(description="When true, include previously read messages in get_messages action.")] = False,
