@@ -270,7 +270,10 @@ mcp_endpoint = next((route.endpoint for route in mcp_app.routes if getattr(route
 if mcp_endpoint is None:
     raise RuntimeError("Unable to locate MCP /mcp endpoint in streamable HTTP app.")
 protected_mcp_endpoint = MCPAuthMiddleware(mcp_endpoint)
+# Mount at both "/" (root) and "/mcp" so Claude Code's HTTP transport works
+# regardless of whether it appends "/mcp" to the configured URL.
 app.router.routes.append(Route("/", endpoint=protected_mcp_endpoint, include_in_schema=False))
+app.router.routes.append(Route("/mcp", endpoint=protected_mcp_endpoint, include_in_schema=False))
 
 
 @app.get("/health")
