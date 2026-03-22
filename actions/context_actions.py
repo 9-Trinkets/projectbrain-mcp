@@ -372,47 +372,79 @@ async def _fetch_context_search_data(
 ) -> dict[str, Any]:
     per_entity_limit = max(1, min(limit, 20))
     async with httpx.AsyncClient(timeout=request_timeout_seconds) as client:
-        await api_get(f"/api/projects/{project_id}", client=client)
-        tasks_page = await api_get(f"/api/projects/{project_id}/tasks", params={"q": q, "limit": per_entity_limit}, client=client)
-        decisions_page = await api_get(f"/api/projects/{project_id}/decisions", params={"q": q, "limit": per_entity_limit}, client=client)
-        facts_page = await api_get(f"/api/projects/{project_id}/facts", params={"q": q, "limit": per_entity_limit}, client=client)
-        skills_page = await api_get("/api/skills", params={"project_id": project_id, "q": q, "limit": per_entity_limit}, client=client)
+        # Tasks still use lexical search (not in the embedding pipeline)
+        tasks_page = await api_get(
+            f"/api/projects/{project_id}/tasks",
+            params={"q": q, "limit": per_entity_limit},
+            client=client,
+        )
+        # Knowledge entities use the hybrid scorer (semantic + lexical + quality signals)
+        knowledge_page = await api_get(
+            f"/api/projects/{project_id}/search",
+            params={"q": q, "limit": per_entity_limit * 3},
+            client=client,
+        )
+    knowledge_items = knowledge_page.get("items", [])
+    semantic_search = knowledge_page.get("semantic_search", False)
     return {
         "tasks_items": tasks_page.get("items", []),
-        "decisions_items": decisions_page.get("items", []),
-        "facts_items": facts_page.get("items", []),
-        "skills_items": skills_page.get("items", []),
+        "knowledge_items": knowledge_items,
+        "semantic_search": semantic_search,
     }
+
+
+def _score_reason(breakdown: dict[str, Any]) -> str:
+    """Produce a short human-readable explanation of the top contributing signals."""
+    signals = [
+        ("semantic", "semantic match"),
+        ("confidence", "confidence"),
+        ("recency", "recency"),
+        ("freshness", "freshness"),
+        ("task_linkage", "linked to task"),
+        ("lexical", "keyword match"),
+    ]
+    # Show signals that contributed meaningfully (>= 0.6 after normalising by weight)
+    reasons = []
+    for key, label in signals:
+        val = breakdown.get(key, 0.0)
+        if key == "task_linkage" and val > 0:
+            reasons.append(label)
+        elif key in ("semantic", "lexical") and val >= 0.5:
+            reasons.append(f"{label} {val:.0%}")
+        elif key in ("confidence", "recency", "freshness") and val >= 0.7:
+            reasons.append(f"{label} {val:.0%}")
+    return ", ".join(reasons[:3]) if reasons else "lexical"
 
 
 def _render_context_search(data: dict[str, Any], *, q: str, preview: Any) -> str:
     tasks_items = data["tasks_items"]
-    decisions_items = data["decisions_items"]
-    facts_items = data["facts_items"]
-    skills_items = data["skills_items"]
-    total = len(tasks_items) + len(decisions_items) + len(facts_items) + len(skills_items)
+    knowledge_items = data["knowledge_items"]
+    semantic_search = data.get("semantic_search", False)
+    total = len(tasks_items) + len(knowledge_items)
     if total == 0:
         return f"No results for '{q}'."
 
-    lines = [f"# Search results for '{q}' ({total} hits)"]
+    search_mode = "semantic + lexical" if semantic_search else "lexical"
+    lines = [f"# Search results for '{q}' ({total} hits, {search_mode})"]
+
     if tasks_items:
         lines.append(f"\n## Tasks ({len(tasks_items)})")
         for item in tasks_items:
             lines.append(f"  - [{item['status']}] {item['title']} (ID: {item['id']})")
             if item.get("description"):
                 lines.append(f"    {preview(item['description'])}")
-    if decisions_items:
-        lines.append(f"\n## Decisions ({len(decisions_items)})")
-        for item in decisions_items:
-            lines.append(f"  - {item['title']} (ID: {item['id']})")
-    if facts_items:
-        lines.append(f"\n## Facts ({len(facts_items)})")
-        for item in facts_items:
-            lines.append(f"  - {item['title']} (ID: {item['id']})")
-    if skills_items:
-        lines.append(f"\n## Skills ({len(skills_items)})")
-        for item in skills_items:
-            lines.append(f"  - {item['title']} (ID: {item['id']})")
+
+    if knowledge_items:
+        lines.append(f"\n## Knowledge ({len(knowledge_items)})")
+        for item in knowledge_items:
+            etype = item.get("entity_type", "?")
+            score = item.get("score", 0.0)
+            breakdown = item.get("score_breakdown", {})
+            reason = _score_reason(breakdown)
+            lines.append(
+                f"  - [{etype}] {item['title']} (ID: {item['entity_id']}, score: {score:.2f}, {reason})"
+            )
+
     return "\n".join(lines)
 
 
