@@ -246,6 +246,7 @@ async def tasks_action_batch_create(
     require_fields: Any,
     valid_task_statuses: set[str],
     project_id: Optional[str] = None,
+    milestone_id: Optional[str] = None,
     items: Optional[list[dict[str, Any]]] = None,
     **_: Any,
 ) -> str:
@@ -265,6 +266,8 @@ async def tasks_action_batch_create(
         if item_status and item_status not in valid_task_statuses:
             errors.append(f"Item {index} ({item_title}): invalid status '{item_status}'")
             continue
+        # Per-item milestone_id takes precedence; fall back to top-level milestone_id
+        item_milestone = item.get("milestone_id") or milestone_id
         payload = {
             "title": item_title,
             "description": item.get("description", ""),
@@ -272,7 +275,7 @@ async def tasks_action_batch_create(
             "priority": item.get("priority"),
             "estimate": item.get("estimate"),
             "sort_order": item.get("sort_order"),
-            "milestone_id": None if item.get("milestone_id") == "" else item.get("milestone_id"),
+            "milestone_id": None if item_milestone == "" else item_milestone,
             "assignee_id": None if item.get("assignee_id") == "" else item.get("assignee_id"),
         }
         payload = {key: value for key, value in payload.items() if value is not None}
