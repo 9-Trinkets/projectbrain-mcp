@@ -478,6 +478,9 @@ async def context(
     q: Annotated[Optional[str], Field(description="Search query used by search/shortlist actions.")] = None,
     limit: Annotated[int, Field(description="Maximum number of results to return for list-like context actions.")] = 5,
     full_tool_mode: Annotated[bool, Field(description="When true, shortlist includes full operation catalog instead of top-ranked subset.")] = False,
+    task_id: Annotated[Optional[str], Field(description="Optional task UUID for context-sensitive knowledge retrieval.")] = None,
+    intent: Annotated[Optional[str], Field(description="Optional user intent for semantic knowledge retrieval.")] = None,
+    knowledge_limit: Annotated[int, Field(description="Max number of knowledge items to return when intent is provided.")] = 5,
 ) -> str:
     """Actions: session, summary, changes, search, shortlist."""
     try:
@@ -496,6 +499,9 @@ async def context(
             q=q,
             limit=limit,
             full_tool_mode=full_tool_mode,
+            task_id=task_id,
+            intent=intent,
+            knowledge_limit=knowledge_limit,
         )
     except Exception as exc:
         return f"Error: {exc}"

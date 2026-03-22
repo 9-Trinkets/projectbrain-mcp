@@ -258,11 +258,32 @@ def _shortlist_tool_actions(intent: str, top_k: int, full_tool_mode: bool = Fals
     return shortlist, fallback_used
 
 
-async def _fetch_context_session_data(*, api_get: Any, request_timeout_seconds: float, project_id: str) -> dict[str, Any]:
+async def _fetch_context_session_data(
+    *,
+    api_get: Any,
+    request_timeout_seconds: float,
+    project_id: str,
+    task_id: Optional[str] = None,
+    intent: Optional[str] = None,
+    knowledge_limit: int = 5,
+) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=request_timeout_seconds) as client:
         session = await api_get(f"/api/projects/{project_id}/session-context", client=client)
         facts_page = await api_get(f"/api/projects/{project_id}/facts", params={"limit": 10}, client=client)
         skills_page = await api_get("/api/skills", params={"project_id": project_id, "limit": 10}, client=client)
+        
+        knowledge_items = None
+        if intent and knowledge_limit > 0:
+            params = {"q": intent, "limit": knowledge_limit}
+            if task_id:
+                params["task_id"] = task_id
+            knowledge_page = await api_get(
+                f"/api/projects/{project_id}/startup-knowledge",
+                params=params,
+                client=client,
+            )
+            knowledge_items = knowledge_page.get("ranked_knowledge")
+
     return {
         "project": session["project"],
         "in_progress": session.get("in_progress_tasks", []),
@@ -271,7 +292,9 @@ async def _fetch_context_session_data(*, api_get: Any, request_timeout_seconds: 
         "members": session.get("team_members", []),
         "facts": facts_page.get("items", []),
         "skills": skills_page.get("items", []),
+        "knowledge": knowledge_items,
     }
+
 
 
 def _render_context_session(data: dict[str, Any], *, preview: Any) -> str:
@@ -282,8 +305,22 @@ def _render_context_session(data: dict[str, Any], *, preview: Any) -> str:
     members = data["members"]
     facts = data["facts"]
     skills = data["skills"]
+    knowledge = data.get("knowledge")
 
     lines = [f"# Project: {project['name']}", f"Description: {project.get('description') or '(none)'}"]
+
+    if knowledge:
+        lines.append(f"\n## Most Relevant Knowledge ({len(knowledge)})")
+        for item in knowledge:
+            etype = item.get("type", "?")
+            score = item.get("score", 0.0)
+            reason = item.get("reason", "lexical")
+            title = item.get("item", {}).get("title", "(no title)")
+            entity_id = item.get("id", "unknown-id")
+            lines.append(
+                f"  - [{etype}] {title} (ID: {entity_id}, score: {score:.2f}, {reason})"
+            )
+
     lines.append(f"\n## In-Progress Tasks ({len(in_progress)})")
     for item in in_progress:
         lines.append(f"  - {item['title']} (ID: {item['id']})")
@@ -455,6 +492,9 @@ async def context_action_session(
     preview: Any,
     request_timeout_seconds: float,
     project_id: Optional[str] = None,
+    task_id: Optional[str] = None,
+    intent: Optional[str] = None,
+    knowledge_limit: int = 0,
     **_: Any,
 ) -> str:
     error = require_fields("session", project_id=project_id)
@@ -464,6 +504,9 @@ async def context_action_session(
         api_get=api_get,
         request_timeout_seconds=request_timeout_seconds,
         project_id=project_id,
+        task_id=task_id,
+        intent=intent,
+        knowledge_limit=knowledge_limit,
     )
     return _render_context_session(data, preview=preview)
 
