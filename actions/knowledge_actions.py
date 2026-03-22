@@ -224,8 +224,8 @@ class FactAdapter:
         category: Optional[str],
         tags: Optional[list[str]],
     ) -> str:
-        del rationale, task_id, tags
-        payload = {"title": title, "body": body, "category": category, "author_type": "agent"}
+        del rationale, tags
+        payload = {"title": title, "body": body, "category": category, "task_id": task_id, "author_type": "agent"}
         payload = {key: value for key, value in payload.items() if value is not None}
         item = await ctx.api_post(f"/api/projects/{project_id}/facts", body=payload)
         category_str = f" [{item['category']}]" if item.get("category") else ""
@@ -243,8 +243,8 @@ class FactAdapter:
         category: Optional[str],
         tags: Optional[list[str]],
     ) -> str:
-        del rationale, task_id, tags
-        payload = {"title": title, "body": body, "category": category}
+        del rationale, tags
+        payload = {"title": title, "body": body, "category": category, "task_id": task_id}
         payload = {key: value for key, value in payload.items() if value is not None}
         if not payload:
             return "Error: action 'update' requires at least one mutable field."
@@ -315,8 +315,8 @@ class SkillAdapter:
         category: Optional[str],
         tags: Optional[list[str]],
     ) -> str:
-        del rationale, task_id
-        payload = {"title": title, "body": body, "category": category, "tags": tags, "author_type": "agent"}
+        del rationale
+        payload = {"title": title, "body": body, "category": category, "tags": tags, "task_id": task_id, "author_type": "agent"}
         payload = {key: value for key, value in payload.items() if value is not None}
         if project_id:
             item = await ctx.api_post(f"/api/projects/{project_id}/skills", body=payload)
@@ -338,8 +338,8 @@ class SkillAdapter:
         category: Optional[str],
         tags: Optional[list[str]],
     ) -> str:
-        del rationale, task_id
-        payload = {"title": title, "body": body, "category": category, "tags": tags}
+        del rationale
+        payload = {"title": title, "body": body, "category": category, "tags": tags, "task_id": task_id}
         payload = {key: value for key, value in payload.items() if value is not None}
         if not payload:
             return "Error: action 'update' requires at least one mutable field."
