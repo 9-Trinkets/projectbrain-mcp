@@ -116,7 +116,7 @@ class MCPAuthMiddleware:
         we trust it — no local secret needed.
         """
         import httpx
-        url = f"{SERVER_URL.rstrip('/')}/api/me"
+        url = f"{SERVER_URL.rstrip('/')}/api/auth/me"
         try:
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
