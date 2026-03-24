@@ -363,6 +363,7 @@ def _json_error_envelope(tool: str, error: MCPError, query: Optional[dict] = Non
 async def server_overview_resource() -> str:
     payload = {
         "name": "ProjectBrain",
+        "version": "1.0.0",
         "transport": "streamable-http",
         "discovery_methods": [
             "initialize",
@@ -1004,3 +1005,21 @@ async def collaboration(
         if response_mode == "json":
             return _json_error_envelope("collaboration", MCPError(str(exc)))
         return f"Error: {exc}"
+
+
+original_list_tools = mcp_server.list_tools
+
+async def list_tools_with_auth_hints():
+    tools = await original_list_tools()
+    authenticated = auth_token.get() is not None
+    for tool in tools:
+        # The _meta attribute is not part of the public Tool model,
+        # so we have to access it via getattr.
+        meta = getattr(tool, "_meta", {})
+        if not meta:
+            meta = {}
+            setattr(tool, "_meta", meta)
+        meta["callable"] = not meta.get("auth_required") or authenticated
+    return tools
+
+mcp_server.list_tools = list_tools_with_auth_hints

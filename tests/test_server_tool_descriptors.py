@@ -79,3 +79,25 @@ async def test_all_tool_input_schema_properties_include_descriptions():
                 missing.append(f"{tool.name}:{path}")
 
     assert not missing, f"Missing parameter descriptions: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_tools_list_includes_callable_hint():
+    # Unauthenticated
+    server.auth_token.set(None)
+    tools = await server.mcp_server.list_tools()
+    for tool in tools:
+        meta = getattr(tool, "_meta", {})
+        assert "callable" in meta
+        if meta.get("auth_required"):
+            assert not meta["callable"]
+        else:
+            assert meta["callable"]
+
+    # Authenticated
+    server.auth_token.set("test_token")
+    tools = await server.mcp_server.list_tools()
+    for tool in tools:
+        meta = getattr(tool, "_meta", {})
+        assert "callable" in meta
+        assert meta["callable"]
