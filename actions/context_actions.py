@@ -491,6 +491,8 @@ async def context_action_session(
     require_fields: Any,
     preview: Any,
     request_timeout_seconds: float,
+    json_envelope: Any,
+    response_mode: str,
     project_id: Optional[str] = None,
     task_id: Optional[str] = None,
     intent: Optional[str] = None,
@@ -508,6 +510,8 @@ async def context_action_session(
         intent=intent,
         knowledge_limit=knowledge_limit,
     )
+    if response_mode == "json":
+        return json_envelope("context", data, query={"action": "session", "project_id": project_id})
     return _render_context_session(data, preview=preview)
 
 
@@ -515,6 +519,8 @@ async def context_action_summary(
     *,
     api_get: Any,
     require_fields: Any,
+    json_envelope: Any,
+    response_mode: str,
     project_id: Optional[str] = None,
     **_: Any,
 ) -> str:
@@ -522,6 +528,8 @@ async def context_action_summary(
     if error:
         return error
     data = await _fetch_context_summary_data(api_get=api_get, project_id=project_id)
+    if response_mode == "json":
+        return json_envelope("context", data, query={"action": "summary", "project_id": project_id})
     return _render_context_summary(data)
 
 
@@ -530,6 +538,8 @@ async def context_action_changes(
     api_get: Any,
     require_fields: Any,
     format_timestamp: Any,
+    json_envelope: Any,
+    response_mode: str,
     project_id: Optional[str] = None,
     since: Optional[str] = None,
     **_: Any,
@@ -538,6 +548,8 @@ async def context_action_changes(
     if error:
         return error
     data = await _fetch_context_changes_data(api_get=api_get, project_id=project_id, since=since)
+    if response_mode == "json":
+        return json_envelope("context", data, query={"action": "changes", "project_id": project_id, "since": since})
     return _render_context_changes(data, since=since, format_timestamp=format_timestamp)
 
 
@@ -547,6 +559,8 @@ async def context_action_search(
     require_fields: Any,
     preview: Any,
     request_timeout_seconds: float,
+    json_envelope: Any,
+    response_mode: str,
     project_id: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = 5,
@@ -562,12 +576,16 @@ async def context_action_search(
         q=q,
         limit=limit,
     )
+    if response_mode == "json":
+        return json_envelope("context", data, query={"action": "search", "project_id": project_id, "q": q, "limit": limit})
     return _render_context_search(data, q=q, preview=preview)
 
 
 async def context_action_shortlist(
     *,
     require_fields: Any,
+    json_envelope: Any,
+    response_mode: str,
     q: Optional[str] = None,
     limit: int = 5,
     full_tool_mode: bool = False,
@@ -581,6 +599,8 @@ async def context_action_shortlist(
         top_k=limit,
         full_tool_mode=full_tool_mode,
     )
+    if response_mode == "json":
+        return json_envelope("context", {"shortlist": shortlist, "fallback_used": fallback_used}, query={"action": "shortlist", "q": q, "limit": limit})
     mode_label = "full_tool_mode" if full_tool_mode else "shortlist"
     lines = [
         f"# Tool shortlist for '{q}'",

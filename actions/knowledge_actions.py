@@ -40,6 +40,8 @@ class KnowledgeEntityAdapter(Protocol):
         q: Optional[str],
         cursor: Optional[str],
         limit: Optional[int],
+        response_mode: str = "human",
+        json_envelope: Any = None,
     ) -> str: ...
 
     async def get_item(
@@ -47,6 +49,8 @@ class KnowledgeEntityAdapter(Protocol):
         *,
         ctx: KnowledgeContext,
         item_id: Optional[str],
+        response_mode: str = "human",
+        json_envelope: Any = None,
     ) -> str: ...
 
     async def create_item(
@@ -96,6 +100,8 @@ class DecisionAdapter:
         q: Optional[str],
         cursor: Optional[str],
         limit: Optional[int],
+        response_mode: str = "human",
+        json_envelope: Any = None,
     ) -> str:
         del category
         result = await ctx.api_get(
@@ -103,27 +109,55 @@ class DecisionAdapter:
             params={"q": q, "cursor": cursor, "limit": limit},
         )
         items = result.get("items", [])
+        if response_mode == "json" and json_envelope:
+            return json_envelope(
+                "knowledge.list",
+                data={"entity": "decision", "items": items, "pagination": {"next_cursor": result.get("next_cursor")}},
+                query={"project_id": project_id, "q": q, "cursor": cursor, "limit": limit},
+            )
         if not items:
-            return "No decisions found."
-        lines = [f"# Decisions ({len(items)})"]
-        for item in items:
-            task_str = f" (task: {item['task_id']})" if item.get("task_id") else ""
-            lines.append(f"- {item['title']}{task_str} (ID: {item['id']})")
-            if item.get("rationale"):
-                lines.append(f"  {ctx.preview(item['rationale'], 200)}")
-        if result.get("next_cursor"):
-            lines.append(f"\nnext_cursor: {result['next_cursor']}")
-        return "\n".join(lines)
+            human = "No decisions found."
+        else:
+            lines = [f"# Decisions ({len(items)})"]
+            for item in items:
+                task_str = f" (task: {item['task_id']})" if item.get("task_id") else ""
+                lines.append(f"- {item['title']}{task_str} (ID: {item['id']})")
+                if item.get("rationale"):
+                    lines.append(f"  {ctx.preview(item['rationale'], 200)}")
+            if result.get("next_cursor"):
+                lines.append(f"\nnext_cursor: {result['next_cursor']}")
+            human = "\n".join(lines)
+        if response_mode == "both" and json_envelope:
+            env = json_envelope(
+                "knowledge.list",
+                data={"entity": "decision", "items": items, "pagination": {"next_cursor": result.get("next_cursor")}},
+                query={"project_id": project_id, "q": q, "cursor": cursor, "limit": limit},
+            )
+            return f"{human}\n\n---\n{env}"
+        return human
 
-    async def get_item(self, *, ctx: KnowledgeContext, item_id: Optional[str]) -> str:
+    async def get_item(
+        self,
+        *,
+        ctx: KnowledgeContext,
+        item_id: Optional[str],
+        response_mode: str = "human",
+        json_envelope: Any = None,
+    ) -> str:
         item = await ctx.api_get(f"/api/decisions/{item_id}")
-        return (
+        if response_mode == "json" and json_envelope:
+            return json_envelope("knowledge.get", data={"entity": "decision", "item": item}, query={"item_id": item_id})
+        human = (
             f"# Decision: {item['title']}\n"
             f"ID: {item['id']}\n"
             f"Project: {item['project_id']}\n"
             f"Task: {item.get('task_id') or '(none)'}\n"
             f"\nRationale:\n{item.get('rationale') or '(none)'}"
         )
+        if response_mode == "both" and json_envelope:
+            env = json_envelope("knowledge.get", data={"entity": "decision", "item": item}, query={"item_id": item_id})
+            return f"{human}\n\n---\n{env}"
+        return human
 
     async def create_item(
         self,
@@ -181,6 +215,8 @@ class FactAdapter:
         q: Optional[str],
         cursor: Optional[str],
         limit: Optional[int],
+        response_mode: str = "human",
+        json_envelope: Any = None,
     ) -> str:
         del category
         result = await ctx.api_get(
@@ -188,29 +224,57 @@ class FactAdapter:
             params={"q": q, "cursor": cursor, "limit": limit},
         )
         items = result.get("items", [])
+        if response_mode == "json" and json_envelope:
+            return json_envelope(
+                "knowledge.list",
+                data={"entity": "fact", "items": items, "pagination": {"next_cursor": result.get("next_cursor")}},
+                query={"project_id": project_id, "q": q, "cursor": cursor, "limit": limit},
+            )
         if not items:
-            return "No facts found."
-        lines = [f"# Facts ({len(items)})"]
-        for item in items:
-            category_str = f" [{item['category']}]" if item.get("category") else ""
-            lines.append(f"- {item['title']}{category_str} (ID: {item['id']})")
-            if item.get("body"):
-                lines.append(f"  {ctx.preview(item['body'], 200)}")
-        if result.get("next_cursor"):
-            lines.append(f"\nnext_cursor: {result['next_cursor']}")
-        return "\n".join(lines)
+            human = "No facts found."
+        else:
+            lines = [f"# Facts ({len(items)})"]
+            for item in items:
+                category_str = f" [{item['category']}]" if item.get("category") else ""
+                lines.append(f"- {item['title']}{category_str} (ID: {item['id']})")
+                if item.get("body"):
+                    lines.append(f"  {ctx.preview(item['body'], 200)}")
+            if result.get("next_cursor"):
+                lines.append(f"\nnext_cursor: {result['next_cursor']}")
+            human = "\n".join(lines)
+        if response_mode == "both" and json_envelope:
+            env = json_envelope(
+                "knowledge.list",
+                data={"entity": "fact", "items": items, "pagination": {"next_cursor": result.get("next_cursor")}},
+                query={"project_id": project_id, "q": q, "cursor": cursor, "limit": limit},
+            )
+            return f"{human}\n\n---\n{env}"
+        return human
 
-    async def get_item(self, *, ctx: KnowledgeContext, item_id: Optional[str]) -> str:
+    async def get_item(
+        self,
+        *,
+        ctx: KnowledgeContext,
+        item_id: Optional[str],
+        response_mode: str = "human",
+        json_envelope: Any = None,
+    ) -> str:
         item = await ctx.api_get(f"/api/facts/{item_id}")
+        if response_mode == "json" and json_envelope:
+            return json_envelope("knowledge.get", data={"entity": "fact", "item": item}, query={"item_id": item_id})
         category_str = f"Category: {item['category']}\n" if item.get("category") else ""
         body_str = f"\n{item['body']}" if item.get("body") else ""
-        return (
+        human = (
             f"# Fact: {item['title']}\n"
             f"ID: {item['id']}\n"
             f"{category_str}"
             f"Project: {item['project_id']}\n"
             f"Created: {item['created_at']}{body_str}"
         )
+        if response_mode == "both" and json_envelope:
+            env = json_envelope("knowledge.get", data={"entity": "fact", "item": item}, query={"item_id": item_id})
+            return f"{human}\n\n---\n{env}"
+        return human
 
     async def create_item(
         self,
@@ -269,32 +333,58 @@ class SkillAdapter:
         q: Optional[str],
         cursor: Optional[str],
         limit: Optional[int],
+        response_mode: str = "human",
+        json_envelope: Any = None,
     ) -> str:
         result = await ctx.api_get(
             "/api/skills",
             params={"project_id": project_id, "category": category, "q": q, "cursor": cursor, "limit": limit},
         )
         items = result.get("items", [])
+        if response_mode == "json" and json_envelope:
+            return json_envelope(
+                "knowledge.list",
+                data={"entity": "skill", "items": items, "pagination": {"next_cursor": result.get("next_cursor")}},
+                query={"project_id": project_id, "category": category, "q": q, "cursor": cursor, "limit": limit},
+            )
         if not items:
-            return "No skills found."
-        lines = [f"# Skills ({len(items)})"]
-        for item in items:
-            scope = "team-wide" if not item.get("project_id") else "project"
-            category_str = f" [{item['category']}]" if item.get("category") else ""
-            tags_str = f" tags:{','.join(item['tags'])}" if item.get("tags") else ""
-            lines.append(f"- {item['title']}{category_str}{tags_str} ({scope}) (ID: {item['id']})")
-            if item.get("body"):
-                lines.append(f"  {ctx.preview(item['body'], 200)}")
-        if result.get("next_cursor"):
-            lines.append(f"\nnext_cursor: {result['next_cursor']}")
-        return "\n".join(lines)
+            human = "No skills found."
+        else:
+            lines = [f"# Skills ({len(items)})"]
+            for item in items:
+                scope = "team-wide" if not item.get("project_id") else "project"
+                category_str = f" [{item['category']}]" if item.get("category") else ""
+                tags_str = f" tags:{','.join(item['tags'])}" if item.get("tags") else ""
+                lines.append(f"- {item['title']}{category_str}{tags_str} ({scope}) (ID: {item['id']})")
+                if item.get("body"):
+                    lines.append(f"  {ctx.preview(item['body'], 200)}")
+            if result.get("next_cursor"):
+                lines.append(f"\nnext_cursor: {result['next_cursor']}")
+            human = "\n".join(lines)
+        if response_mode == "both" and json_envelope:
+            env = json_envelope(
+                "knowledge.list",
+                data={"entity": "skill", "items": items, "pagination": {"next_cursor": result.get("next_cursor")}},
+                query={"project_id": project_id, "category": category, "q": q, "cursor": cursor, "limit": limit},
+            )
+            return f"{human}\n\n---\n{env}"
+        return human
 
-    async def get_item(self, *, ctx: KnowledgeContext, item_id: Optional[str]) -> str:
+    async def get_item(
+        self,
+        *,
+        ctx: KnowledgeContext,
+        item_id: Optional[str],
+        response_mode: str = "human",
+        json_envelope: Any = None,
+    ) -> str:
         item = await ctx.api_get(f"/api/skills/{item_id}")
+        if response_mode == "json" and json_envelope:
+            return json_envelope("knowledge.get", data={"entity": "skill", "item": item}, query={"item_id": item_id})
         scope = f"project:{item['project_id']}" if item.get("project_id") else "team-wide"
         category_str = f"Category: {item['category']}\n" if item.get("category") else ""
         tags_str = f"Tags: {', '.join(item['tags'])}\n" if item.get("tags") else ""
-        return (
+        human = (
             f"# {item['title']}\n"
             f"ID: {item['id']}\n"
             f"Scope: {scope}\n"
@@ -302,6 +392,10 @@ class SkillAdapter:
             f"Author: {item['author_type']} ({item['author_id']})\n"
             f"\n{item['body']}"
         )
+        if response_mode == "both" and json_envelope:
+            env = json_envelope("knowledge.get", data={"entity": "skill", "item": item}, query={"item_id": item_id})
+            return f"{human}\n\n---\n{env}"
+        return human
 
     async def create_item(
         self,
@@ -382,6 +476,8 @@ async def _knowledge_list_via_adapter(
     q: Optional[str],
     cursor: Optional[str],
     limit: Optional[int],
+    response_mode: str = "human",
+    json_envelope: Any = None,
 ) -> str:
     if adapter.requires_project_for_list:
         error = ctx.require_fields("list", project_id=project_id)
@@ -394,14 +490,23 @@ async def _knowledge_list_via_adapter(
         q=q,
         cursor=cursor,
         limit=limit,
+        response_mode=response_mode,
+        json_envelope=json_envelope,
     )
 
 
-async def _knowledge_get_via_adapter(*, adapter: KnowledgeEntityAdapter, ctx: KnowledgeContext, item_id: Optional[str]) -> str:
+async def _knowledge_get_via_adapter(
+    *,
+    adapter: KnowledgeEntityAdapter,
+    ctx: KnowledgeContext,
+    item_id: Optional[str],
+    response_mode: str = "human",
+    json_envelope: Any = None,
+) -> str:
     error = ctx.require_fields("get", item_id=item_id)
     if error:
         return error
-    return await adapter.get_item(ctx=ctx, item_id=item_id)
+    return await adapter.get_item(ctx=ctx, item_id=item_id, response_mode=response_mode, json_envelope=json_envelope)
 
 
 async def _knowledge_create_via_adapter(
@@ -473,14 +578,20 @@ async def knowledge_action_list(
     api_get: Any,
     require_fields: Any,
     preview: Any,
+    validate_response_mode: Any,
+    json_envelope: Any,
     entity: str,
     project_id: Optional[str],
     category: Optional[str],
     q: Optional[str],
     cursor: Optional[str],
     limit: Optional[int],
+    response_mode: str = "human",
     **_: Any,
 ) -> str:
+    mode_error = validate_response_mode(response_mode)
+    if mode_error:
+        return mode_error
     adapter = _adapter_for_entity(entity)
     ctx = _build_ctx(
         api_get=api_get,
@@ -498,6 +609,8 @@ async def knowledge_action_list(
         q=q,
         cursor=cursor,
         limit=limit,
+        response_mode=response_mode,
+        json_envelope=json_envelope,
     )
 
 
@@ -506,10 +619,16 @@ async def knowledge_action_get(
     api_get: Any,
     require_fields: Any,
     preview: Any,
+    validate_response_mode: Any,
+    json_envelope: Any,
     entity: str,
     item_id: Optional[str],
+    response_mode: str = "human",
     **_: Any,
 ) -> str:
+    mode_error = validate_response_mode(response_mode)
+    if mode_error:
+        return mode_error
     adapter = _adapter_for_entity(entity)
     ctx = _build_ctx(
         api_get=api_get,
@@ -519,7 +638,13 @@ async def knowledge_action_get(
         require_fields=require_fields,
         preview=preview,
     )
-    return await _knowledge_get_via_adapter(adapter=adapter, ctx=ctx, item_id=item_id)
+    return await _knowledge_get_via_adapter(
+        adapter=adapter,
+        ctx=ctx,
+        item_id=item_id,
+        response_mode=response_mode,
+        json_envelope=json_envelope,
+    )
 
 
 async def knowledge_action_create(

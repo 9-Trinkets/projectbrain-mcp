@@ -7,15 +7,21 @@ async def file_action_list(
     *,
     api_get: Any,
     require_fields: Any,
+    validate_response_mode: Any,
+    json_envelope: Any,
     project_id: Optional[str] = None,
     entity_type: Optional[str] = None,
     entity_id: Optional[str] = None,
     file_type: Optional[str] = None,
+    response_mode: str = "human",
     **_: Any,
 ) -> str:
     error = require_fields("list", project_id=project_id)
     if error:
         return error
+    mode_error = validate_response_mode(response_mode)
+    if mode_error:
+        return mode_error
     params: dict[str, Any] = {}
     if entity_type:
         params["entity_type"] = entity_type
@@ -24,28 +30,51 @@ async def file_action_list(
     if file_type:
         params["type"] = file_type
     items = await api_get(f"/api/projects/{project_id}/files", params=params or None)
+    if response_mode == "json":
+        return json_envelope(
+            "files.list",
+            data={"items": items or []},
+            query={"project_id": project_id, "entity_type": entity_type, "entity_id": entity_id, "file_type": file_type},
+        )
     if not items:
-        return "No files found."
-    lines = [
-        f"- [{f['type']}] v{f.get('latest_version') or '?'} {f['title']} (ID: {f['id']})"
-        for f in items
-    ]
-    return f"Files ({len(items)}):\n" + "\n".join(lines)
+        human = "No files found."
+    else:
+        lines = [
+            f"- [{f['type']}] v{f.get('latest_version') or '?'} {f['title']} (ID: {f['id']})"
+            for f in items
+        ]
+        human = f"Files ({len(items)}):\n" + "\n".join(lines)
+    if response_mode == "both":
+        env = json_envelope(
+            "files.list",
+            data={"items": items or []},
+            query={"project_id": project_id, "entity_type": entity_type, "entity_id": entity_id, "file_type": file_type},
+        )
+        return f"{human}\n\n---\n{env}"
+    return human
 
 
 async def file_action_get(
     *,
     api_get: Any,
     require_fields: Any,
+    validate_response_mode: Any,
+    json_envelope: Any,
     file_id: Optional[str] = None,
     version: Optional[int] = None,
+    response_mode: str = "human",
     **_: Any,
 ) -> str:
     error = require_fields("get", file_id=file_id)
     if error:
         return error
+    mode_error = validate_response_mode(response_mode)
+    if mode_error:
+        return mode_error
     params = {"version": version} if version is not None else None
     file = await api_get(f"/api/files/{file_id}", params=params)
+    if response_mode == "json":
+        return json_envelope("files.get", data={"file": file}, query={"file_id": file_id, "version": version})
     lines = [
         f"# {file['title']}",
         f"Type: {file['type']}",
@@ -57,7 +86,11 @@ async def file_action_get(
         lines.append(f"Entity: {file['entity_type']} / {file.get('entity_id')}")
     if file.get("body") is not None:
         lines.append(f"\n{file['body']}")
-    return "\n".join(lines)
+    human = "\n".join(lines)
+    if response_mode == "both":
+        env = json_envelope("files.get", data={"file": file}, query={"file_id": file_id, "version": version})
+        return f"{human}\n\n---\n{env}"
+    return human
 
 
 async def file_action_create(
@@ -104,20 +137,33 @@ async def file_action_list_versions(
     *,
     api_get: Any,
     require_fields: Any,
+    validate_response_mode: Any,
+    json_envelope: Any,
     file_id: Optional[str] = None,
+    response_mode: str = "human",
     **_: Any,
 ) -> str:
     error = require_fields("list_versions", file_id=file_id)
     if error:
         return error
+    mode_error = validate_response_mode(response_mode)
+    if mode_error:
+        return mode_error
     versions = await api_get(f"/api/files/{file_id}/versions")
+    if response_mode == "json":
+        return json_envelope("files.list_versions", data={"file_id": file_id, "versions": versions or []}, query={"file_id": file_id})
     if not versions:
-        return "No versions found."
-    lines = [
-        f"- v{v['version']} by {v.get('created_by') or 'unknown'} at {v.get('created_at') or '?'} (ID: {v['id']})"
-        for v in versions
-    ]
-    return f"Versions ({len(versions)}):\n" + "\n".join(lines)
+        human = "No versions found."
+    else:
+        lines = [
+            f"- v{v['version']} by {v.get('created_by') or 'unknown'} at {v.get('created_at') or '?'} (ID: {v['id']})"
+            for v in versions
+        ]
+        human = f"Versions ({len(versions)}):\n" + "\n".join(lines)
+    if response_mode == "both":
+        env = json_envelope("files.list_versions", data={"file_id": file_id, "versions": versions or []}, query={"file_id": file_id})
+        return f"{human}\n\n---\n{env}"
+    return human
 
 
 async def file_action_delete(

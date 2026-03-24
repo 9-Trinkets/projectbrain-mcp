@@ -5,18 +5,39 @@ from typing import Any, Optional
 from envelope import parse as _parse_envelope
 
 
-async def collaboration_action_list_team_members(*, api_get: Any, **_: Any) -> str:
+async def collaboration_action_list_team_members(
+    *,
+    api_get: Any,
+    validate_response_mode: Any,
+    json_envelope: Any,
+    response_mode: str = "human",
+    **_: Any,
+) -> str:
+    mode_error = validate_response_mode(response_mode)
+    if mode_error:
+        return mode_error
     members = await api_get("/api/teams/members")
+    if response_mode == "json":
+        return json_envelope("collaboration.list_team_members", data={"members": members})
     lines = [f"# Team Members ({len(members)})"]
     for member in members:
         lines.append(f"  {member['user_type'].upper()} {member['name']} <{member['email']}> (ID: {member['id']})")
-    return "\n".join(lines)
+    human = "\n".join(lines)
+    if response_mode == "both":
+        env = json_envelope("collaboration.list_team_members", data={"members": members})
+        return f"{human}\n\n---\n{env}"
+    return human
 
 
-async def collaboration_action_discover_agents(*, api_get: Any, format_timestamp: Any, **_: Any) -> str:
+async def collaboration_action_discover_agents(*, api_get: Any, format_timestamp: Any, validate_response_mode: Any, json_envelope: Any, response_mode: str = "human", **_: Any) -> str:
     import time as _time
     agents = await api_get("/api/a2a/agents")
+    mode_error = validate_response_mode(response_mode)
+    if mode_error:
+        return mode_error
     if not agents:
+        if response_mode == "json":
+            return json_envelope("collaboration.discover_agents", data={"agents": []})
         return "No agents found on your team."
 
     # Fetch presence; degrade gracefully if unavailable
@@ -31,6 +52,13 @@ async def collaboration_action_discover_agents(*, api_get: Any, format_timestamp
     except Exception:
         pass
 
+    if response_mode == "json":
+        agents_data = [
+            {**agent, "online": agent["id"] in online_ids}
+            for agent in agents
+        ]
+        return json_envelope("collaboration.discover_agents", data={"agents": agents_data})
+
     lines = [f"# Agents on your team ({len(agents)})"]
     for agent in agents:
         is_online = agent["id"] in online_ids
@@ -43,7 +71,12 @@ async def collaboration_action_discover_agents(*, api_get: Any, format_timestamp
         lines.append(f"  Email: {agent['email']}")
         if agent.get("description"):
             lines.append(f"  Description: {agent['description']}")
-    return "\n".join(lines)
+    human = "\n".join(lines)
+    if response_mode == "both":
+        agents_data = [{**agent, "online": agent["id"] in online_ids} for agent in agents]
+        env = json_envelope("collaboration.discover_agents", data={"agents": agents_data})
+        return f"{human}\n\n---\n{env}"
+    return human
 
 
 async def collaboration_action_send_message(
@@ -80,12 +113,20 @@ async def collaboration_action_get_messages(
     api_get: Any,
     api_patch: Any,
     format_timestamp: Any,
+    validate_response_mode: Any,
+    json_envelope: Any,
     include_read: bool = False,
     mark_as_read: bool = False,
+    response_mode: str = "human",
     **_: Any,
 ) -> str:
+    mode_error = validate_response_mode(response_mode)
+    if mode_error:
+        return mode_error
     messages = await api_get("/api/a2a/messages", params={"unread_only": not include_read})
     if not messages:
+        if response_mode == "json":
+            return json_envelope("collaboration.get_messages", data={"messages": [], "marked_as_read": 0})
         return "No unread messages." if not include_read else "No messages."
     marked_count = 0
     if mark_as_read:
@@ -97,6 +138,11 @@ async def collaboration_action_get_messages(
                 marked_count += 1
             except Exception:
                 continue
+    if response_mode == "json":
+        return json_envelope(
+            "collaboration.get_messages",
+            data={"messages": messages, "marked_as_read": marked_count},
+        )
     label = "Recent messages" if include_read else "Unread messages"
     lines = [f"# {label} ({len(messages)})"]
     for item in messages:
@@ -108,11 +154,15 @@ async def collaboration_action_get_messages(
         env = _parse_envelope(item.get("body") or "")
         lines.append(f"  {env.display_text}")
         if env.preamble:
-            for label, tokens in env.preamble.items():
-                lines.append(f"  [{label}: {' '.join(tokens)}]")
+            for lbl, tokens in env.preamble.items():
+                lines.append(f"  [{lbl}: {' '.join(tokens)}]")
     if mark_as_read and marked_count > 0:
         lines.append(f"\n(Marked {marked_count} message(s) as read)")
-    return "\n".join(lines)
+    human = "\n".join(lines)
+    if response_mode == "both":
+        env_json = json_envelope("collaboration.get_messages", data={"messages": messages, "marked_as_read": marked_count})
+        return f"{human}\n\n---\n{env_json}"
+    return human
 
 
 async def collaboration_action_update_my_card(
@@ -148,12 +198,18 @@ async def collaboration_action_get_agent_activity(
     *,
     api_get: Any,
     format_timestamp: Any,
+    validate_response_mode: Any,
+    json_envelope: Any,
     agent_id: Optional[str] = None,
     project_id: Optional[str] = None,
     since: Optional[str] = None,
     limit: int = 20,
+    response_mode: str = "human",
     **_: Any,
 ) -> str:
+    mode_error = validate_response_mode(response_mode)
+    if mode_error:
+        return mode_error
     params = {"limit": limit}
     if agent_id:
         params["actor_id"] = agent_id
@@ -166,7 +222,15 @@ async def collaboration_action_get_agent_activity(
     items = res.get("items", [])
 
     if not items:
+        if response_mode == "json":
+            return json_envelope("collaboration.get_agent_activity", data={"items": [], "has_more": False})
         return "No recent activity found for the specified criteria."
+
+    if response_mode == "json":
+        return json_envelope(
+            "collaboration.get_agent_activity",
+            data={"items": items, "has_more": bool(res.get("has_more"))},
+        )
 
     actor_name = items[0].get("actor_name") or agent_id or "Agent"
     lines = [f"# Recent Activity: {actor_name}"]
@@ -178,7 +242,14 @@ async def collaboration_action_get_agent_activity(
     if res.get("has_more"):
         lines.append("\n(More activity available. Use a newer 'since' or pagination.)")
 
-    return "\n".join(lines)
+    human = "\n".join(lines)
+    if response_mode == "both":
+        env = json_envelope(
+            "collaboration.get_agent_activity",
+            data={"items": items, "has_more": bool(res.get("has_more"))},
+        )
+        return f"{human}\n\n---\n{env}"
+    return human
 
 
 COLLABORATION_ACTION_HANDLERS = {

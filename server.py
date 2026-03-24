@@ -18,6 +18,7 @@ from actions.tasks_actions import (
     TASKS_RELATIONSHIP_ACTION_HANDLERS,
     TaskBatchUpdateItem,
 )
+from mcp.errors import APIError, MCPError, ValidationError
 from mcp.server.fastmcp import FastMCP
 from mcp.server.streamable_http import TransportSecuritySettings
 from mcp.types import ToolAnnotations
@@ -82,7 +83,7 @@ async def _resolve_project_id(value: str) -> str:
             return matches[0]["id"]
         if len(matches) > 1:
             names = ", ".join(f"{m['name']} ({m['id'][:8]})" for m in matches)
-            raise ValueError(f"Ambiguous project ID prefix '{value}' — matches: {names}.")
+            raise ValidationError(f"Ambiguous project ID prefix '{value}'. Matching projects: {names}. Use a longer prefix or the full UUID.", field_name="project_id")
 
     # Name search
     needle = value.lower()
@@ -90,9 +91,9 @@ async def _resolve_project_id(value: str) -> str:
     if len(matches) == 1:
         return matches[0]["id"]
     if len(matches) == 0:
-        raise ValueError(f"No project matching '{value}'.")
+        raise ValidationError(f"No project found matching '{value}'.", field_name="project_id")
     names = ", ".join(m["name"] for m in matches)
-    raise ValueError(f"Ambiguous project name '{value}' — matches: {names}. Use the full UUID.")
+    raise ValidationError(f"Ambiguous project name '{value}'. Matching projects: {names}. Use the full UUID.", field_name="project_id")
 VALID_MILESTONE_STATUSES = {"planned", "in_progress", "completed", "cancelled"}
 VALID_RESPONSE_MODES = {"human", "json", "both"}
 DEFAULT_TOOL_ANNOTATION_HINTS = {
@@ -221,7 +222,7 @@ async def _api_request(
 ) -> Any:
     token = auth_token.get()
     if not token:
-        raise ValueError("Not authenticated. Provide a valid bearer token.")
+        raise ValidationError("Not authenticated. Provide a valid bearer token.", status_code=401)
 
     headers = {"Authorization": f"Bearer {token}"}
     url = f"{settings.api_base_url.rstrip('/')}{path}"
@@ -243,7 +244,7 @@ async def _api_request(
         else:
             response = await _send(client)
     except httpx.HTTPError as exc:
-        raise ValueError(f"Unable to reach API service: {exc}") from exc
+        raise APIError(f"Unable to reach API service: {exc}") from exc
 
     if response.status_code >= 400:
         detail = ""
@@ -253,14 +254,14 @@ async def _api_request(
             detail = response.text.strip()
         if not detail:
             detail = f"Request failed with status {response.status_code}"
-        raise ValueError(detail)
+        raise APIError(detail, status_code=response.status_code)
 
     if response.status_code == 204 or not response.content:
         return None
     try:
         return response.json()
     except ValueError as exc:
-        raise ValueError("API returned a non-JSON response.") from exc
+        raise APIError("API returned a non-JSON response.") from exc
 
 
 async def _api_get(path: str, *, params: Optional[dict[str, Any]] = None, client: Optional[httpx.AsyncClient] = None) -> Any:
@@ -334,6 +335,23 @@ def _json_envelope(tool: str, data: dict, query: Optional[dict] = None) -> str:
     if query is not None:
         payload["meta"]["query"] = query
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _json_error_envelope(tool: str, error: MCPError, query: Optional[dict] = None) -> str:
+    payload: dict[str, object] = {
+        "ok": False,
+        "data": None,
+        "meta": {"tool": tool, "response_mode": "json"},
+        "error": {
+            "type": error.error_type,
+            "message": error.message,
+            "code": error.status_code,
+        },
+    }
+    if query is not None:
+        payload["meta"]["query"] = query
+    return json.dumps(payload, ensure_ascii=False)
+
 
 @mcp_server.resource(
     "projectbrain://server/overview",
@@ -481,6 +499,7 @@ async def context(
     task_id: Annotated[Optional[str], Field(description="Optional task UUID for context-sensitive knowledge retrieval.")] = None,
     intent: Annotated[Optional[str], Field(description="Optional user intent for semantic knowledge retrieval.")] = None,
     knowledge_limit: Annotated[int, Field(description="Max number of knowledge items to return when intent is provided.")] = 5,
+    response_mode: Annotated[str, Field(description="Output format: human, json, or both (where supported).")] = "human",
 ) -> str:
     """Actions: session, summary, changes, search, shortlist."""
     try:
@@ -493,6 +512,8 @@ async def context(
             require_fields=_require_fields,
             preview=_preview,
             format_timestamp=_format_timestamp,
+            json_envelope=_json_envelope,
+            json_error_envelope=_json_error_envelope,
             request_timeout_seconds=settings.request_timeout_seconds,
             project_id=resolved_project_id,
             since=since,
@@ -502,24 +523,35 @@ async def context(
             task_id=task_id,
             intent=intent,
             knowledge_limit=knowledge_limit,
+            response_mode=response_mode,
         )
+    except MCPError as exc:
+        if response_mode == "json":
+            return _json_error_envelope("context", exc)
+        return f"Error: {exc.message}"
     except Exception as exc:
+        if response_mode == "json":
+            return _json_error_envelope("context", MCPError(str(exc)))
         return f"Error: {exc}"
 
 
-async def _projects_action_list(**_: Any) -> str:
+async def _projects_action_list(*, response_mode: str, json_envelope: Any, **_: Any) -> str:
     items = await _api_get("/api/projects/")
+    if response_mode == "json":
+        return json_envelope("projects", {"items": items}, query={"action": "list"})
     if not items:
         return "No projects found."
     lines = [f"- {item['name']}: {item.get('description') or '(no description)'} (ID: {item['id']})" for item in items]
     return "Projects:\n" + "\n".join(lines)
 
 
-async def _projects_action_get(*, project_id: Optional[str], **_: Any) -> str:
+async def _projects_action_get(*, project_id: Optional[str], response_mode: str, json_envelope: Any, **_: Any) -> str:
     error = _require_fields("get", project_id=project_id)
     if error:
         return error
     item = await _api_get(f"/api/projects/{project_id}")
+    if response_mode == "json":
+        return json_envelope("projects", item, query={"action": "get", "project_id": project_id})
     return (
         f"# {item['name']}\n"
         f"ID: {item['id']}\n"
@@ -601,6 +633,7 @@ async def projects(
             "require_fields": _require_fields,
             "validate_response_mode": _validate_response_mode,
             "json_envelope": _json_envelope,
+            "json_error_envelope": _json_error_envelope,
             "project_id": resolved_project_id,
             "name": name,
             "description": description,
@@ -618,7 +651,13 @@ async def projects(
         if workflow_handler is not None:
             return await workflow_handler(**action_args)
         return "Error: action must be one of: list, get, create, update, get_workflow, add_workflow_stage, update_workflow_stage, delete_workflow_stage, reorder_workflow_stages."
+    except MCPError as exc:
+        if response_mode == "json":
+            return _json_error_envelope("projects", exc)
+        return f"Error: {exc.message}"
     except Exception as exc:
+        if response_mode == "json":
+            return _json_error_envelope("projects", MCPError(str(exc)))
         return f"Error: {exc}"
 
 
@@ -687,6 +726,7 @@ async def tasks(
             "validate_response_mode": _validate_response_mode,
             "normalize_terms": _normalize_terms,
             "json_envelope": _json_envelope,
+            "json_error_envelope": _json_error_envelope,
             "task_to_dict": _task_to_dict,
             "milestone_to_dict": _milestone_to_dict,
             "format_timestamp": _format_timestamp,
@@ -729,7 +769,13 @@ async def tasks(
             "batch_update, add_dependency, remove_dependency, list_dependencies, add_comment, list_comments, "
             "list_milestones, get_milestone, create_milestone, update_milestone, delete_milestone, reorder_milestones."
         )
+    except MCPError as exc:
+        if response_mode == "json":
+            return _json_error_envelope("tasks", exc)
+        return f"Error: {exc.message}"
     except Exception as exc:
+        if response_mode == "json":
+            return _json_error_envelope("tasks", MCPError(str(exc)))
         return f"Error: {exc}"
 
 
@@ -766,6 +812,7 @@ async def knowledge(
     q: Annotated[Optional[str], Field(description="Search query for list action filtering.")] = None,
     cursor: Annotated[Optional[str], Field(description="Pagination cursor for list action.")] = None,
     limit: Annotated[Optional[int], Field(description="Maximum items to return for list action.")] = None,
+    response_mode: Annotated[str, Field(description="Output format: human, json, or both (where supported).")] = "human",
 ) -> str:
     """Entity: decision|fact|skill. Actions: list, get, create, update, delete."""
     normalized_entity = normalize_knowledge_entity(entity)
@@ -783,7 +830,10 @@ async def knowledge(
             api_patch=_api_patch,
             api_delete=_api_delete,
             require_fields=_require_fields,
+            validate_response_mode=_validate_response_mode,
             preview=_preview,
+            json_envelope=_json_envelope,
+            json_error_envelope=_json_error_envelope,
             entity=normalized_entity,
             project_id=resolved_project_id,
             item_id=item_id,
@@ -796,8 +846,15 @@ async def knowledge(
             q=q,
             cursor=cursor,
             limit=limit,
+            response_mode=response_mode,
         )
+    except MCPError as exc:
+        if response_mode == "json":
+            return _json_error_envelope("knowledge", exc)
+        return f"Error: {exc.message}"
     except Exception as exc:
+        if response_mode == "json":
+            return _json_error_envelope("knowledge", MCPError(str(exc)))
         return f"Error: {exc}"
 
 
@@ -830,6 +887,7 @@ async def files(
     entity_type: Annotated[Optional[str], Field(description="Polymorphic entity type (e.g. task, milestone) to link the file to.")] = None,
     entity_id: Annotated[Optional[str], Field(description="UUID of the linked entity (must pair with entity_type).")] = None,
     version: Annotated[Optional[int], Field(description="Specific version number to retrieve in get action; omit for latest.")] = None,
+    response_mode: Annotated[str, Field(description="Output format: human, json, or both (where supported).")] = "human",
 ) -> str:
     """Actions: list, get, create, add_version, list_versions, delete."""
     try:
@@ -842,6 +900,9 @@ async def files(
             api_post=_api_post,
             api_delete=_api_delete,
             require_fields=_require_fields,
+            validate_response_mode=_validate_response_mode,
+            json_envelope=_json_envelope,
+            json_error_envelope=_json_error_envelope,
             project_id=resolved_project_id,
             file_id=file_id,
             file_type=file_type,
@@ -850,8 +911,15 @@ async def files(
             entity_type=entity_type,
             entity_id=entity_id,
             version=version,
+            response_mode=response_mode,
         )
+    except MCPError as exc:
+        if response_mode == "json":
+            return _json_error_envelope("files", exc)
+        return f"Error: {exc.message}"
     except Exception as exc:
+        if response_mode == "json":
+            return _json_error_envelope("files", MCPError(str(exc)))
         return f"Error: {exc}"
 
 
@@ -896,6 +964,7 @@ async def collaboration(
     mark_as_read: Annotated[bool, Field(description="When true, mark fetched messages as read in get_messages action.")] = False,
     description: Annotated[Optional[str], Field(description="Agent/member profile description for update_my_card action.")] = None,
     invite_code: Annotated[Optional[str], Field(description="Team invite code used by join_team action.")] = None,
+    response_mode: Annotated[str, Field(description="Output format: human, json, or both (where supported).")] = "human",
 ) -> str:
     """Actions: list_team_members, discover_agents, get_agent_activity, send_message, get_messages, update_my_card, join_team."""
     try:
@@ -908,8 +977,11 @@ async def collaboration(
             api_post=_api_post,
             api_patch=_api_patch,
             require_fields=_require_fields,
+            validate_response_mode=_validate_response_mode,
             preview=_preview,
             format_timestamp=_format_timestamp,
+            json_envelope=_json_envelope,
+            json_error_envelope=_json_error_envelope,
             agent_id=agent_id,
             project_id=resolved_project_id,
             since=since,
@@ -922,6 +994,13 @@ async def collaboration(
             mark_as_read=mark_as_read,
             description=description,
             invite_code=invite_code,
+            response_mode=response_mode,
         )
+    except MCPError as exc:
+        if response_mode == "json":
+            return _json_error_envelope("collaboration", exc)
+        return f"Error: {exc.message}"
     except Exception as exc:
+        if response_mode == "json":
+            return _json_error_envelope("collaboration", MCPError(str(exc)))
         return f"Error: {exc}"
