@@ -18,7 +18,7 @@ from actions.tasks_actions import (
     TASKS_RELATIONSHIP_ACTION_HANDLERS,
     TaskBatchUpdateItem,
 )
-from mcp.errors import APIError, MCPError, ValidationError
+from errors import APIError, MCPError, ValidationError
 from mcp.server.fastmcp import FastMCP
 from mcp.server.streamable_http import TransportSecuritySettings
 from mcp.types import ToolAnnotations
