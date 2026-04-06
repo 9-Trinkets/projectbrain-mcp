@@ -30,7 +30,6 @@ async def collaboration_action_list_team_members(
 
 
 async def collaboration_action_discover_agents(*, api_get: Any, format_timestamp: Any, validate_response_mode: Any, json_envelope: Any, response_mode: str = "human", **_: Any) -> str:
-    import time as _time
     agents = await api_get("/api/a2a/agents")
     mode_error = validate_response_mode(response_mode)
     if mode_error:

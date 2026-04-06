@@ -434,9 +434,7 @@ def _score_reason(breakdown: dict[str, Any]) -> str:
     """Produce a short human-readable explanation of the top contributing signals."""
     signals = [
         ("semantic", "semantic match"),
-        ("confidence", "confidence"),
         ("recency", "recency"),
-        ("freshness", "freshness"),
         ("task_linkage", "linked to task"),
         ("lexical", "keyword match"),
     ]
@@ -448,7 +446,7 @@ def _score_reason(breakdown: dict[str, Any]) -> str:
             reasons.append(label)
         elif key in ("semantic", "lexical") and val >= 0.5:
             reasons.append(f"{label} {val:.0%}")
-        elif key in ("confidence", "recency", "freshness") and val >= 0.7:
+        elif key == "recency" and val >= 0.7:
             reasons.append(f"{label} {val:.0%}")
     return ", ".join(reasons[:3]) if reasons else "lexical"
 

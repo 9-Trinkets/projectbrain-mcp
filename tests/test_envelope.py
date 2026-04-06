@@ -1,11 +1,11 @@
 """Unit tests for mcp/envelope.py."""
-import sys
 import os
+import sys
 
 # Ensure the mcp package root is on the path so `envelope` can be imported
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from envelope import Envelope, parse, render
+from envelope import parse, render
 
 
 class TestParse:

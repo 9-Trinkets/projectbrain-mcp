@@ -1,8 +1,10 @@
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 import api_adapter  # noqa: F401 — configures the MCP runtime before server is imported
 import server
+
 
 @pytest.mark.asyncio
 async def test_context_session_semantic_params():
